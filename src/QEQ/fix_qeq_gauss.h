@@ -66,6 +66,7 @@ class FixQEqGauss : public Fix {
   double get_cutoff() { return cutoff; }
   double *get_chi() { return chi; }
   double *get_eta() { return eta; }
+  double *get_zeta() { return zeta; }
 
  protected:
   int nevery;
