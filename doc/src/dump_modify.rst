@@ -17,7 +17,7 @@ Syntax
 * one or more keyword/value pairs may be appended
 
 * these keywords apply to various dump styles
-* keyword = *append* or *at* or *balance* or *buffer* or *delay* or *element* or *every* or *every/time* or *fileper* or *first* or *flush* or *format* or *header* or *image* or *label* or *maxfiles* or *nfile* or *pad* or *pbc* or *precision* or *region* or *refresh* or *scale* or *sfactor* or *skip* or *sort* or *tfactor* or *thermo* or *thresh* or *time* or *units* or *unwrap*
+* keyword = *append* or *at* or *balance* or *buffer* or *colname* or *delay* or *element* or *every* or *every/time* or *fileper* or *first* or *flush* or *format* or *header* or *image* or *label* or *maxfiles* or *nfile* or *pad* or *pbc* or *precision* or *region* or *refresh* or *scale* or *sfactor* or *skip* or *sort* or *tfactor* or *thermo* or *thresh* or *time* or *units* or *unwrap*
 
   .. parsed-literal::
 
@@ -181,8 +181,8 @@ extra buffering.
 .. versionadded:: 4May2022
 
 The *colname* keyword can be used to change the default header keyword
-for dump styles: *atom*, *custom*, and *cfg* and their compressed, ADIOS,
-and MPIIO variants.  The setting for *ID string* replaces the default
+for dump styles: *atom*, *custom*, *cfg*, and *local* and their compressed,
+ADIOS, and MPIIO variants.  The setting for *ID string* replaces the default
 text with the provided string.  *ID* can be a positive integer when it
 represents the column number counting from the left, a negative integer
 when it represents the column number from the right (i.e. -1 is the last
@@ -297,6 +297,8 @@ in file tmp.times:
 
 ----------
 
+.. versionadded:: 7Jan2022
+
 The *every/time* keyword can be used with any dump style except the
 *dcd* and *xtc* styles.  It changes the frequency of dump snapshots
 from being based on the current timestep to being determined by
@@ -408,7 +410,7 @@ command is invoked.
 ----------
 
 The *flush* keyword determines whether a flush operation is invoked
-after a dump snapshot is written to the dump file.  A flush insures
+after a dump snapshot is written to the dump file.  A flush ensures
 the output in that file is current (no buffering by the OS), even if
 LAMMPS halts before the simulation completes.  Flushes cannot be
 performed with dump style *xtc*\ .
@@ -632,7 +634,7 @@ calculates the displacement of each atom from its reference position.
 The "4" index is the scalar displacement; 1, 2, and 3 are the :math:`xyz`
 components of the displacement.  The :doc:`dump_modify thresh <dump_modify>`
 command will cause only atoms that have displaced more than
-:math:`0.6~\mathrm{\mathring A}` to be output on a given snapshot (assuming
+:math:`0.6~\AA` to be output on a given snapshot (assuming
 metal units).  However, note that when an atom is output, we also need to
 update the reference position for that atom to its new coordinates.  So that it
 will not be output in every snapshot thereafter.  That reference position is
@@ -675,7 +677,7 @@ value of *yes* means atom coords are written in normalized units from
 0.0 to 1.0 in each box dimension.  If the simulation box is triclinic
 (tilted), then all atom coords will still be between 0.0 and 1.0.  A
 value of *no* means they are written in absolute distance units
-(e.g., :math:`\mathrm{\mathring A}` or :math:`\sigma`).
+(e.g., :math:`\AA` or :math:`\sigma`).
 Using this keyword will reset all custom header names set with
 *dump_modify colname* to their respective default values.
 
@@ -687,7 +689,7 @@ when writing to XTC files.  By default, they are initialized for
 whatever :doc:`units <units>` style is being used, to write out
 coordinates in nanometers and time in picoseconds.  For example, for *real*
 units, LAMMPS defines *sfactor* = 0.1 and *tfactor* = 0.001, since the
-:math:`\mathrm{\mathring A}` and fs used by *real* units are 0.1 nm and
+:math:`\AA` and fs used by *real* units are 0.1 nm and
 0.001 ps, respectively.  If you are using a units system with distance and time
 units far from nm and ps, you may wish to write XTC files with
 different units, since the compression algorithm used in XTC files is
@@ -751,9 +753,13 @@ run, this option is ignored since the output is already balanced.
 ----------
 
 The *thermo* keyword only applies the dump styles *netcdf* and *yaml*.
-It triggers writing of :doc:`thermo <thermo>` information to the dump file
-alongside per-atom data.  The values included in the dump file are
-identical to the values specified by :doc:`thermo_style <thermo_style>`.
+It triggers writing of :doc:`thermo <thermo>` information to the dump
+file alongside per-atom data.  The values included in the dump file are
+cached values from the last thermo output and include the exact same the
+values as specified by the :doc:`thermo_style <thermo_style>` command.
+Because these are cached values, they are only up-to-date when dump
+output is on a timestep that also has thermo output. Dump style *yaml*
+will skip thermo output on incompatible steps.
 
 ----------
 
@@ -881,7 +887,7 @@ levels that sacrifice compression for performance. 0 is the default,
 positive levels are 1 to 22, with 22 being the most expensive
 compression. Zstd promises higher compression/decompression speeds for
 similar compression ratios. For more details see
-`http://facebook.github.io/zstd/`.
+`https://facebook.github.io/zstd/`.
 
 In addition, Zstd compressed files can include a checksum of the
 entire contents. The Zstd enabled dump styles enable this feature by

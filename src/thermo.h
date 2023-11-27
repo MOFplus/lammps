@@ -1,7 +1,7 @@
 /* -*- c++ -*- ----------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   Steve Plimpton, sjplimp@sandia.gov
+   LAMMPS development team: developers@lammps.org
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -21,9 +21,6 @@ namespace LAMMPS_NS {
 
 class Thermo : protected Pointers {
   friend class MinCG;              // accesses compute_pe
-  friend class DumpNetCDF;         // accesses thermo properties
-  friend class DumpNetCDFMPIIO;    // accesses thermo properties
-  friend class DumpYAML;           // accesses thermo properties
 
  public:
   char *style;
@@ -47,6 +44,11 @@ class Thermo : protected Pointers {
 
   //RS thermo_values .. is an array of doubles with the values usually dumped to screen
   double *thermo_values;
+  // for accessing cached thermo data
+  const int *get_nfield() const { return &nfield; }
+  const bigint *get_timestep() const { return &ntimestep; }
+  const std::vector<multitype> &get_fields() const { return field_data; }
+  const std::vector<std::string> &get_keywords() const { return keyword; }
 
  private:
   int nfield, nfield_initial;
@@ -55,6 +57,7 @@ class Thermo : protected Pointers {
   std::vector<std::string> keyword, format, format_column_user, keyword_user;
   std::string format_line_user, format_float_user, format_int_user, format_bigint_user;
   std::map<std::string, int> key2col;
+  std::vector<multitype> field_data;
 
   int normvalue;       // use this for normflag unless natoms = 0
   int normuserflag;    // 0 if user has not set, 1 if has
@@ -69,6 +72,7 @@ class Thermo : protected Pointers {
   bigint last_step;
 
   bigint natoms;
+  bigint ntimestep;
 
   // data used by routines that compute single values
   int ivalue;          // integer value to print
@@ -119,7 +123,6 @@ class Thermo : protected Pointers {
   typedef void (Thermo::*FnPtr)();
   void addfield(const char *, FnPtr, int);
   FnPtr *vfunc;    // list of ptrs to functions
-  void call_vfunc(int ifield);
 
   void compute_compute();    // functions that compute a single value
   void compute_fix();        // via calls to  Compute,Fix,Variable classes
