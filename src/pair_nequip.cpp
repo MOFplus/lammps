@@ -495,9 +495,9 @@ void PairNEQUIP::compute(int eflag, int vflag){
   // Write forces and per-atom energies (0-based tags here)
   for(int itag = 0; itag < inum; itag++){
     int i = tag2i[itag];
-    f[i][0] = forces[itag][0];
-    f[i][1] = forces[itag][1];
-    f[i][2] = forces[itag][2];
+    f[i][0] += forces[itag][0];
+    f[i][1] += forces[itag][1];
+    f[i][2] += forces[itag][2];
     if (eflag_atom) eatom[i] = atomic_energies[itag][0];
     //printf("%d %d %g %g %g %g %g %g\n", i, type[i], pos[itag][0], pos[itag][1], pos[itag][2], f[i][0], f[i][1], f[i][2]);
   }
