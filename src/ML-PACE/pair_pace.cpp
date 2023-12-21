@@ -155,6 +155,9 @@ void PairPACE::compute(int eflag, int vflag)
 
   aceimpl->ace->resize_neighbours_cache(max_jnum);
 
+  // RS allocate a jlist_masked ( i'm a newb with C++ --- bare with me)
+  int* jlist_masked = new int[max_jnum]; 
+
   //loop over atoms
   for (ii = 0; ii < list->inum; ii++) {
     i = list->ilist[ii];
@@ -175,8 +178,13 @@ void PairPACE::compute(int eflag, int vflag)
     // jnum(0) = 50
     // jlist(neigh ind of 0-atom) = [1,2,10,7,99,25, .. 50 element in total]
 
+    // RS follow yury's advice to mask these two highest bits used for special bonds. we have them in MOF-FF indeed
+    //    in order not to mess with the jlist i make a copy and pass this to pace
+
+    for (jj = 0; jj < jnum; ++jj)  jlist_masked[jj] = jlist[jj] & NEIGHMASK;
+
     try {
-      aceimpl->ace->compute_atom(i, x, type, jnum, jlist);
+      aceimpl->ace->compute_atom(i, x, type, jnum, jlist_masked);
     } catch (std::exception &e) {
       error->one(FLERR, e.what());
     }
@@ -190,9 +198,9 @@ void PairPACE::compute(int eflag, int vflag)
       dely = x[j][1] - ytmp;
       delz = x[j][2] - ztmp;
 
-      fij[0] = scale[itype][itype] * aceimpl->ace->neighbours_forces(jj, 0);
-      fij[1] = scale[itype][itype] * aceimpl->ace->neighbours_forces(jj, 1);
-      fij[2] = scale[itype][itype] * aceimpl->ace->neighbours_forces(jj, 2);
+      fij[0] = scale[itype][itype] * aceimpl->ace->neighbours_forces(jj, 0) * econv;
+      fij[1] = scale[itype][itype] * aceimpl->ace->neighbours_forces(jj, 1) * econv;
+      fij[2] = scale[itype][itype] * aceimpl->ace->neighbours_forces(jj, 2) * econv;
 
       f[i][0] += fij[0];
       f[i][1] += fij[1];
@@ -210,10 +218,13 @@ void PairPACE::compute(int eflag, int vflag)
     // tally energy contribution
     if (eflag_either) {
       // evdwl = energy of atom I
-      evdwl = scale[itype][itype] * aceimpl->ace->e_atom;
+      evdwl = scale[itype][itype] * aceimpl->ace->e_atom * econv; 
       ev_tally_full(i, 2.0 * evdwl, 0.0, 0.0, 0.0, 0.0, 0.0);
     }
   }
+
+  // RS clean jlist_masked 
+  delete jlist_masked;
 
   if (vflag_fdotr) virial_fdotr_compute();
 
@@ -242,9 +253,16 @@ void PairPACE::settings(int narg, char **arg)
   if (narg > 3) utils::missing_cmd_args(FLERR, "pair_style pace", error);
 
   // ACE potentials are parameterized in metal units
-  if (strcmp("metal", update->unit_style) != 0)
-    error->all(FLERR, "ACE potentials require 'metal' units");
-
+  // RS 2023: catch this and allow "real" units to allow overlay with FF
+  //          -> in case of real units we use scale to fix this with econv
+  if (strcmp("metal", update->unit_style) == 0) {
+    econv = 1.0;
+  } else if (strcmp("real", update->unit_style) == 0) {
+    econv = 23.060541945329334;   // conversion from qV to kcal/mol
+  } else {
+    error->all(FLERR, "ACE potentials require 'metal' or 'real' units");
+  }
+    
   recursive = true;    // default evaluator style: RECURSIVE
 
   int iarg = 0;

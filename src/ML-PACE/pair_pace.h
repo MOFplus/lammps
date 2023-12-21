@@ -58,6 +58,10 @@ class PairPACE : public Pair {
   bool recursive;    // "recursive" option for ACERecursiveEvaluator
 
   int chunksize;
+
+  // RS conversion factor for energies (depending on "real" or "metal" units)
+  double econv;
+   
 };
 }    // namespace LAMMPS_NS
 
