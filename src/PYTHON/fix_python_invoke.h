@@ -33,7 +33,6 @@ class FixPythonInvoke : public Fix {
   void setup(int) override;
   void end_of_step() override;
   void post_force(int) override;
-  void setup(int) override;
   void min_setup(int) override;
   void min_post_force(int) override;
   double compute_scalar() override;

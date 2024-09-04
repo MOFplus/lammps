@@ -148,11 +148,6 @@ void FixPythonInvoke::post_force(int vflag)
   Py_CLEAR(result);
 }
 
-void FixPythonInvoke::setup(int vflag)
-{
-  post_force(vflag);
-}
-
 /* ---------------------------------------------------------------------- */
 /*  RS .. add callback for minimize                                       */
 
