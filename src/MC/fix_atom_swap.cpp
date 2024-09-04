@@ -171,7 +171,7 @@ void FixAtomSwap::options(int narg, char **arg)
       while (iarg < narg) {
         if (isalpha(arg[iarg][0])) break;
         if (nswaptypes >= atom->ntypes) error->all(FLERR, "Illegal fix atom/swap command");
-        type_list[nswaptypes] = utils::numeric(FLERR, arg[iarg], false, lmp);
+        type_list[nswaptypes] = utils::expand_type_int(FLERR, arg[iarg], Atom::ATOM, lmp);
         nswaptypes++;
         iarg++;
       }
@@ -203,6 +203,10 @@ int FixAtomSwap::setmask()
 
 void FixAtomSwap::init()
 {
+  if (!atom->mass) error->all(FLERR, "Fix atom/swap requires per atom type masses");
+  if (atom->rmass_flag && (comm->me == 0))
+    error->warning(FLERR, "Fix atom/swap will use per-type masses for velocity rescaling");
+
   c_pe = modify->get_compute_by_id("thermo_pe");
 
   int *type = atom->type;
