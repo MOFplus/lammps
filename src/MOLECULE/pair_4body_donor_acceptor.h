@@ -12,22 +12,20 @@
 ------------------------------------------------------------------------- */
 
 #ifdef PAIR_CLASS
-// clang-format off
-PairStyle(hbond/dreiding/lj,PairHbondDreidingLJ);
-// clang-format on
+PairStyle(4body_donor_acceptor,Pair4bodyDonorAcceptor);
 #else
 
-#ifndef LMP_PAIR_HBOND_DREIDING_LJ_H
-#define LMP_PAIR_HBOND_DREIDING_LJ_H
+#ifndef LMP_PAIR_4BODY_DONOR_ACCEPTOR_H
+#define LMP_PAIR_4BODY_DONOR_ACCEPTOR_H
 
 #include "pair.h"
 
 namespace LAMMPS_NS {
 
-class PairHbondDreidingLJ : public Pair {
+class Pair4bodyDonorAcceptor : public Pair {
  public:
-  PairHbondDreidingLJ(class LAMMPS *);
-  ~PairHbondDreidingLJ() override;
+  Pair4bodyDonorAcceptor(class LAMMPS *);
+  ~Pair4bodyDonorAcceptor() override;
   void compute(int, int) override;
   void settings(int, char **) override;
   void coeff(int, char **) override;
