@@ -33,22 +33,24 @@ class PairManybodyDonorAcceptor : public Pair {
   void compute(int, int) override;
   void settings(int, char **) override;
   void coeff(int, char **) override;
-  void init_style() override;
-  double init_one(int, int) override;
-  double single(int, int, int, int, double, double, double, double &) override;
+  // void init_style() override;
+  // double init_one(int, int) override;
+  // double single(int, int, int, int, double, double, double, double &) override;
 
  protected:
-  double cut_inner_global, cut_outer_global, cut_angle_global;
-  int ap_global;
+  double cutoff_dsf;
+  // double cut_inner_global, cut_outer_global, cut_angle_global;
+  // int ap_global;
 
   struct Param {
-    double epsilon, sigma;
-    double lj1, lj2, lj3, lj4;
-    double d0, alpha, r0;
-    double morse1;
-    double denom_vdw;
-    double cut_inner, cut_outer, cut_innersq, cut_outersq, cut_angle, offset;
-    int ap;
+    double de, a, r0;
+    // double epsilon, sigma;
+    // double lj1, lj2, lj3, lj4;
+    // double d0, alpha, r0;
+    // double morse1;
+    // double denom_vdw;
+    // double cut_inner, cut_outer, cut_innersq, cut_outersq, cut_angle, offset;
+    // int ap;
   };
 
   Param *params;    // parameter set for an I-J-K interaction
