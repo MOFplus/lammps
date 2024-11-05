@@ -16,7 +16,7 @@
    Contributing author: Tod A Pascal (Caltech)
 ------------------------------------------------------------------------- */
 
-#include "pair_4body_donor_acceptor.h"
+#include "pair_manybody_donor_acceptor.h"
 
 #include "atom.h"
 #include "atom_vec.h"
@@ -42,7 +42,7 @@ using namespace MathSpecial;
 
 /* ---------------------------------------------------------------------- */
 
-Pair4bodyDonorAcceptor::Pair4bodyDonorAcceptor(LAMMPS *lmp) : Pair(lmp)
+PairManybodyDonorAcceptor::PairManybodyDonorAcceptor(LAMMPS *lmp) : Pair(lmp)
 {
   // hbond cannot compute virial as F dot r
   // due to using map() to find bonded H atoms which are not near donor atom
@@ -59,7 +59,7 @@ Pair4bodyDonorAcceptor::Pair4bodyDonorAcceptor(LAMMPS *lmp) : Pair(lmp)
 
 /* ---------------------------------------------------------------------- */
 
-Pair4bodyDonorAcceptor::~Pair4bodyDonorAcceptor()
+PairManybodyDonorAcceptor::~PairManybodyDonorAcceptor()
 {
   memory->sfree(params);
   delete [] pvector;
@@ -76,7 +76,7 @@ Pair4bodyDonorAcceptor::~Pair4bodyDonorAcceptor()
 
 /* ---------------------------------------------------------------------- */
 
-void Pair4bodyDonorAcceptor::compute(int eflag, int vflag)
+void PairManybodyDonorAcceptor::compute(int eflag, int vflag)
 {
   int i,j,k,m,ii,jj,kk,inum,jnum,knum,itype,jtype,ktype,iatom,imol;
   tagint tagprev;
@@ -269,7 +269,7 @@ void Pair4bodyDonorAcceptor::compute(int eflag, int vflag)
    allocate all arrays
 ------------------------------------------------------------------------- */
 
-void Pair4bodyDonorAcceptor::allocate()
+void PairManybodyDonorAcceptor::allocate()
 {
   allocated = 1;
   int n = atom->ntypes;
@@ -298,7 +298,7 @@ void Pair4bodyDonorAcceptor::allocate()
    global settings
 ------------------------------------------------------------------------- */
 
-void Pair4bodyDonorAcceptor::settings(int narg, char **arg)
+void PairManybodyDonorAcceptor::settings(int narg, char **arg)
 {
   if (narg != 4) error->all(FLERR,"Illegal pair_style command");
 
@@ -312,7 +312,7 @@ void Pair4bodyDonorAcceptor::settings(int narg, char **arg)
    set coeffs for one or more type pairs
 ------------------------------------------------------------------------- */
 
-void Pair4bodyDonorAcceptor::coeff(int narg, char **arg)
+void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
 {
   if (narg < 6 || narg > 10)
     error->all(FLERR,"Incorrect args for pair coefficients");
@@ -388,7 +388,7 @@ void Pair4bodyDonorAcceptor::coeff(int narg, char **arg)
    init specific to this pair style
 ------------------------------------------------------------------------- */
 
-void Pair4bodyDonorAcceptor::init_style()
+void PairManybodyDonorAcceptor::init_style()
 {
   // molecular system required to use special list to find H atoms
   // tags required to use special list
@@ -448,7 +448,7 @@ void Pair4bodyDonorAcceptor::init_style()
    init for one type pair i,j and corresponding j,i
 ------------------------------------------------------------------------- */
 
-double Pair4bodyDonorAcceptor::init_one(int i, int j)
+double PairManybodyDonorAcceptor::init_one(int i, int j)
 {
   int m;
 
@@ -467,7 +467,7 @@ double Pair4bodyDonorAcceptor::init_one(int i, int j)
 
 /* ---------------------------------------------------------------------- */
 
-double Pair4bodyDonorAcceptor::single(int i, int j, int itype, int jtype,
+double PairManybodyDonorAcceptor::single(int i, int j, int itype, int jtype,
                                    double rsq,
                                    double /*factor_coul*/, double /*factor_lj*/,
                                    double &fforce)

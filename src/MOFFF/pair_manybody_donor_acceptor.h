@@ -12,20 +12,24 @@
 ------------------------------------------------------------------------- */
 
 #ifdef PAIR_CLASS
-PairStyle(4body_donor_acceptor,Pair4bodyDonorAcceptor);
+// clang-format off
+PairStyle(manybody/donor/acceptor,PairManybodyDonorAcceptor);
+// clang-format on
 #else
 
-#ifndef LMP_PAIR_4BODY_DONOR_ACCEPTOR_H
-#define LMP_PAIR_4BODY_DONOR_ACCEPTOR_H
+//#ifndef LMP_PAIR_HBOND_DREIDING_LJ_H
+//#define LMP_PAIR_HBOND_DREIDING_LJ_H
+#ifndef PAIR_MANYBODY_DONOR_ACCEPTOR
+#define PAIR_MANYBODY_DONOR_ACCEPTOR
 
 #include "pair.h"
 
 namespace LAMMPS_NS {
 
-class Pair4bodyDonorAcceptor : public Pair {
+class PairManybodyDonorAcceptor : public Pair {
  public:
-  Pair4bodyDonorAcceptor(class LAMMPS *);
-  ~Pair4bodyDonorAcceptor() override;
+  PairManybodyDonorAcceptor(class LAMMPS *);
+  ~PairManybodyDonorAcceptor() override;
   void compute(int, int) override;
   void settings(int, char **) override;
   void coeff(int, char **) override;
