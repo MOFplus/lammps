@@ -33,7 +33,7 @@ class PairManybodyDonorAcceptor : public Pair {
   void compute(int, int) override;
   void settings(int, char **) override;
   void coeff(int, char **) override;
-  // void init_style() override;
+  void init_style() override;
   // double init_one(int, int) override;
   // double single(int, int, int, int, double, double, double, double &) override;
 
@@ -44,6 +44,7 @@ class PairManybodyDonorAcceptor : public Pair {
 
   struct Param {
     double de, a, r0;
+    double cutoff_dsf;
     // double epsilon, sigma;
     // double lj1, lj2, lj3, lj4;
     // double d0, alpha, r0;
@@ -59,7 +60,8 @@ class PairManybodyDonorAcceptor : public Pair {
 
   int *donor;           // 1 if this type is ever a donor, else 0
   int *acceptor;        // 1 if this type is ever an acceptor, else 0
-  int ***type2param;    // mapping from D,A,H to params, -1 if no map
+  // int ***type2param;    // mapping from D,A,H to params, -1 if no map
+  int **type2param;
 
   void allocate();
 };

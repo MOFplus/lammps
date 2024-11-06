@@ -78,46 +78,49 @@ PairManybodyDonorAcceptor::~PairManybodyDonorAcceptor()
 
 void PairManybodyDonorAcceptor::compute(int eflag, int vflag)
 {
-  // int i,j,k,m,ii,jj,kk,inum,jnum,knum,itype,jtype,ktype,iatom,imol;
-  // tagint tagprev;
-  // double delx,dely,delz,rsq,rsq1,rsq2,r1,r2;
-  // double factor_hb,force_angle,force_kernel,evdwl,eng_lj,ehbond,force_switch;
-  // double c,s,a,b,ac,a11,a12,a22,vx1,vx2,vy1,vy2,vz1,vz2,d;
-  // double fi[3],fj[3],delr1[3],delr2[3];
-  // double r2inv,r10inv;
-  // double switch1,switch2;
-  // int *ilist,*jlist,*numneigh,**firstneigh;
-  // tagint *klist;
+  int i,j,k,m,ii,jj,kk,inum,jnum,knum,itype,jtype,ktype,iatom,imol;
+  tagint tagprev;
+  double delx,dely,delz,rsq,rsq1,rsq2,r1,r2;
+  double factor_hb,force_angle,force_kernel,evdwl,eng_lj,ehbond,force_switch;
+  double c,s,a,b,ac,a11,a12,a22,vx1,vx2,vy1,vy2,vz1,vz2,d;
+  double fi[3],fj[3],delr1[3],delr2[3];
+  double r2inv,r10inv;
+  double switch1,switch2;
+  int *ilist,*jlist,*numneigh,**firstneigh;
+  tagint *klist;
 
-  // evdwl = ehbond = 0.0;
-  // ev_init(eflag,vflag);
+  evdwl = ehbond = 0.0;
+  ev_init(eflag,vflag);
 
-  // double **x = atom->x;
-  // double **f = atom->f;
-  // tagint *tag = atom->tag;
-  // int *molindex = atom->molindex;
-  // int *molatom = atom->molatom;
-  // tagint **special = atom->special;
-  // int **nspecial = atom->nspecial;
-  // int *type = atom->type;
-  // double *special_lj = force->special_lj;
-  // int molecular = atom->molecular;
-  // Molecule **onemols = atom->avec->onemols;
+  double **x = atom->x;
+  double **f = atom->f;
+  tagint *tag = atom->tag;
+  int *molindex = atom->molindex;
+  int *molatom = atom->molatom;
+  tagint **special = atom->special;
+  int **nspecial = atom->nspecial;
+  int *type = atom->type;
+  double *special_lj = force->special_lj;
+  int molecular = atom->molecular;
+  Molecule **onemols = atom->avec->onemols;
 
-  // inum = list->inum;
-  // ilist = list->ilist;
-  // numneigh = list->numneigh;
-  // firstneigh = list->firstneigh;
+  inum = list->inum;
+  ilist = list->ilist;
+  numneigh = list->numneigh;
+  firstneigh = list->firstneigh;
 
+  printf("\t\t\t\tCompute\n");
   // // ii = loop over donors
   // // jj = loop over acceptors
   // // kk = loop over hydrogens bonded to donor
 
   // int hbcount = 0;
+  printf("test %i\n", inum);
+  for (ii = 0; ii < inum; ii++) {
+    i = ilist[ii];
+    itype = type[i];
 
-  // for (ii = 0; ii < inum; ii++) {
-  //   i = ilist[ii];
-  //   itype = type[i];
+    printf("itype: %i %i\n", itype, i);
   //   if (!donor[itype]) continue;
   //   if (molecular == Atom::MOLECULAR) {
   //     klist = special[i];
@@ -272,7 +275,7 @@ void PairManybodyDonorAcceptor::compute(int eflag, int vflag)
 void PairManybodyDonorAcceptor::allocate()
 {
   allocated = 1;
-  int n = atom->ntypes;
+  int n = atom->ntypes; // get number of atomtypes
 
   // mark all setflag as set, since don't require pair_coeff of all I,J
 
@@ -285,13 +288,13 @@ void PairManybodyDonorAcceptor::allocate()
 
   donor = new int[n+1];
   acceptor = new int[n+1];
-  memory->create(type2param,n+1,n+1,n+1,"pair:type2param");
+  // memory->create(type2param,n+1,n+1,n+1,"pair:type2param");
+  memory->create(type2param,n+1,n+1,"pair:type2param");
 
-  int i,j,k;
+  int i,j;
   for (i = 1; i <= n; i++)
     for (j = 1; j <= n; j++)
-      for (k = 1; k <= n; k++)
-        type2param[i][j][k] = -1;
+        type2param[i][j] = -1;
 }
 
 /* ----------------------------------------------------------------------
@@ -327,8 +330,9 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
   // utils::bounds(FLERR,arg[1],1,atom->ntypes,jlo,jhi,error);
   // utils::bounds(FLERR,arg[2],1,atom->ntypes,klo,khi,error);
   int ilo,ihi,jlo,jhi;
-  utils::bounds(FLERR,arg[0],1,atom->ntypes,ilo,ihi,error);
-  utils::bounds(FLERR,arg[1],1,atom->ntypes,jlo,jhi,error);
+  utils::bounds(FLERR,arg[0],1,atom->ntypes,ilo,ihi,error); // arg[0] is always the donor
+  utils::bounds(FLERR,arg[1],1,atom->ntypes,jlo,jhi,error); // arg[1] is always the acceptor
+  printf("ilo, ihi: %i %i\n", ilo, ihi);
 
   // int donor_flag;
   // if (strcmp(arg[3],"i") == 0) donor_flag = 0;
@@ -369,6 +373,7 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
   params[nparams].de = de;
   params[nparams].a = a;
   params[nparams].r0 = r0;
+  params[nparams].cutoff_dsf = cutoff_dsf;
 
   // params[nparams].epsilon = epsilon_one;
   // params[nparams].sigma = sigma_one;
@@ -384,7 +389,18 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
   //   (params[nparams].cut_outersq-params[nparams].cut_innersq);
 
   // flag type2param with either i,j = D,A or j,i = D,A
-
+  int count = 0;
+  for (int i = ilo; i <= ihi; i++) {
+    for (int j = MAX(jlo,i); j <= jhi; j++) {
+      // printf("nparams %d\n", nparams);
+      type2param[j][i] = nparams; // do we need something here for donor/acceptor?
+      count++;
+    }
+  }
+  nparams++;
+  if (count == 0) {
+      error->all(FLERR,"Incorrect args for pair coefficients");
+    }
   // int count = 0;
   // for (int i = ilo; i <= ihi; i++)
   //   for (int j = MAX(jlo,i); j <= jhi; j++)
@@ -402,22 +418,23 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
    init specific to this pair style
 ------------------------------------------------------------------------- */
 
-// void PairManybodyDonorAcceptor::init_style()
-// {
+void PairManybodyDonorAcceptor::init_style()
+{
+  printf("\t\t\t\tinit style\n");
 //   // molecular system required to use special list to find H atoms
 //   // tags required to use special list
 //   // pair newton on required since are looping over D atoms
 //   //   and computing forces on A,H which may be on different procs
 
-//   if (atom->molecular == Atom::ATOMIC)
-//     error->all(FLERR,"Pair style hbond/dreiding requires molecular system");
-//   if (atom->tag_enable == 0)
-//     error->all(FLERR,"Pair style hbond/dreiding requires atom IDs");
-//   if (atom->map_style == Atom::MAP_NONE)
-//     error->all(FLERR,"Pair style hbond/dreiding requires an atom map, "
-//                "see atom_modify");
-//   if (force->newton_pair == 0)
-//     error->all(FLERR,"Pair style hbond/dreiding requires newton pair on");
+   if (atom->molecular == Atom::ATOMIC)
+     error->all(FLERR,"Pair style hbond/dreiding requires molecular system");
+   if (atom->tag_enable == 0)
+     error->all(FLERR,"Pair style hbond/dreiding requires atom IDs");
+   if (atom->map_style == Atom::MAP_NONE)
+     error->all(FLERR,"Pair style hbond/dreiding requires an atom map, "
+                "see atom_modify");
+   if (force->newton_pair == 0)
+     error->all(FLERR,"Pair style hbond/dreiding requires newton pair on");
 
 //   // set donor[M]/acceptor[M] if any atom of type M is a donor/acceptor
 
@@ -432,6 +449,21 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
 //           donor[i] = 1;
 //           acceptor[j] = 1;
 //         }
+
+  int anyflag = 0;
+  int n = atom->ntypes;
+  for (int m = 1; m <= n; m++) {
+    donor[m] = acceptor[m] = 0;
+  }
+  for (int i = 1; i <= n; i++) {
+    for (int j = 1; j <= n; j++) {
+      if (type2param[i][j] >= 0) {
+        anyflag = 1;
+        donor[i] = 1;
+        acceptor[j] = 1;
+      }
+    }
+  }
 
 //   if (!anyflag) error->all(FLERR,"No pair hbond/dreiding coefficients set");
 
@@ -455,8 +487,8 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
 
 //   // full neighbor list request
 
-//   neighbor->add_request(this, NeighConst::REQ_FULL);
-// }
+  neighbor->add_request(this, NeighConst::REQ_FULL);
+}
 
 /* ----------------------------------------------------------------------
    init for one type pair i,j and corresponding j,i
