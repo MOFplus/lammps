@@ -38,7 +38,7 @@ using namespace MathConst;
 using namespace MathSpecial;
 
 #define SMALL 0.001
-#define CHUNK 8
+#define CHUNK 9
 
 /* ---------------------------------------------------------------------- */
 
@@ -68,8 +68,8 @@ PairManybodyDonorAcceptor::~PairManybodyDonorAcceptor()
     memory->destroy(setflag);
     memory->destroy(cutsq);
 
-    delete [] donor;
-    delete [] acceptor;
+    // delete [] donor;
+    // delete [] acceptor;
     memory->destroy(type2param);
   }
 }
@@ -78,18 +78,27 @@ PairManybodyDonorAcceptor::~PairManybodyDonorAcceptor()
 
 void PairManybodyDonorAcceptor::compute(int eflag, int vflag)
 {
-  int i,j,k,m,ii,jj,kk,inum,jnum,knum,itype,jtype,ktype,iatom,imol;
+  int i,j,m,ii,jj,inum,jnum,itype,jtype,iatom,imol;
   tagint tagprev;
-  double delx,dely,delz,rsq,rsq1,rsq2,r1,r2;
+  double delx,dely,delz,rsq,r_DA_sq,rsq2,d_DA,r2;
   double factor_hb,force_angle,force_kernel,evdwl,eng_lj,ehbond,force_switch;
   double c,s,a,b,ac,a11,a12,a22,vx1,vx2,vy1,vy2,vz1,vz2,d;
-  double fi[3],fj[3],delr1[3],delr2[3];
+  double fj[3],fc1[3],fc2[3],r_DA[3],delr2[3],r_DC1[3],r_DC2[3];
   double r2inv,r10inv;
   double switch1,switch2;
   int *ilist,*jlist,*numneigh,**firstneigh;
-  tagint *klist;
 
-  evdwl = ehbond = 0.0;
+  double norm_da, norm_dcc, norm_cc_cross, alpha_dot, beta_dot;
+  double r_DCC[3], cc_cross[3];
+  double D_pi_beta, E_pi, D_sig_alpha, E_sig, E;
+  double dE_sig_dr, dE_pi_dr, dE_dr, dE_sig_dadot, dE_sig_dbdot, dE_pi_dadot, dE_pi_dbdot;
+  double dE_dadot, dE_dbdot, cross_c11_c21, cross_c02_20, a_dot_a, sqrt_a_dot_a;
+  double dadx_term1, dadx_term2, dbdx_term1, dbdx_term2, dbdx_terma, dbdx_termc;
+  double morse_pi, morse_sig; 
+  double dr_dx, da_dx, db_dx;
+  // tagint *klist;
+
+  E = 0.0;
   ev_init(eflag,vflag);
 
   double **x = atom->x;
@@ -109,163 +118,207 @@ void PairManybodyDonorAcceptor::compute(int eflag, int vflag)
   numneigh = list->numneigh;
   firstneigh = list->firstneigh;
 
-  printf("\t\t\t\tCompute\n");
-  // // ii = loop over donors
-  // // jj = loop over acceptors
-  // // kk = loop over hydrogens bonded to donor
+  // printf("\t\t\t\tCompute\n");
+  // printf("XYZ:\n");
+  // for (i = 0; i < 8; i++) {
+  //   printf("%12.8f %12.8f %12.8f\n",x[i][0], x[i][1], x[i][2]);
+  // }
+  // printf("DONE\n");
 
-  // int hbcount = 0;
-  printf("test %i\n", inum);
+  // // // ii = loop over donors
+  // // // jj = loop over acceptors
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
     itype = type[i];
+    // printf("ii: %i, i: %i, itype: %i\n", ii, i, itype);
+    if (donor_typeid != itype) {
+      // printf("skipping, atom %i is of type %i which is not the donor type %i\n", i, itype, donor_typeid);
+      continue;
+    }
+    jlist = firstneigh[i];
+    jnum = numneigh[i];
+    for (jj = 0; jj < jnum; jj++) {
+      j = jlist[jj];
+      factor_hb = special_lj[sbmask(j)];
+      j &= NEIGHMASK;
 
-    printf("itype: %i %i\n", itype, i);
-  //   if (!donor[itype]) continue;
-  //   if (molecular == Atom::MOLECULAR) {
-  //     klist = special[i];
-  //     knum = nspecial[i][0];
-  //   } else {
-  //     if (molindex[i] < 0) continue;
-  //     imol = molindex[i];
-  //     iatom = molatom[i];
-  //     klist = onemols[imol]->special[iatom];
-  //     knum = onemols[imol]->nspecial[iatom][0];
-  //     tagprev = tag[i] - iatom - 1;
-  //   }
-  //   jlist = firstneigh[i];
-  //   jnum = numneigh[i];
+      jtype = type[j];
+      // printf("\tjj: %i, j: %i, jtype: %i\n", j, j, jtype);
+      if (acceptor_typeid != jtype) {
+        // printf("\tskipping, atom %i is of type %i which is not the acceptor type %i\n", i, itype, acceptor_typeid);
+        continue;
+      }
+      // printf("%12.8f %12.8f %12.8f\n",x[i][0], x[i][1], x[i][2]);
+      // printf("%12.8f %12.8f %12.8f\n",x[i][0], x[i][1], x[i][2]);
+      delx = x[i][0] - x[j][0];
+      dely = x[i][1] - x[j][1];
+      delz = x[i][2] - x[j][2];
+      rsq = delx*delx + dely*dely + delz*delz; 
 
-  //   for (jj = 0; jj < jnum; jj++) {
-  //     j = jlist[jj];
-  //     factor_hb = special_lj[sbmask(j)];
-  //     j &= NEIGHMASK;
+      m = type2param[itype][jtype];
+      if (m < 0) continue;
+      const Param &pm = params[m];
+      double dp_0 = pm.dp_0;
+      double ds_0 = pm.ds_0;
+      double a_p  = pm.a_p;
+      double a_s  = pm.a_s;
+      double rp_0 = pm.rp_0;
+      double rs_0 = pm.rs_0;
 
-  //     jtype = type[j];
-  //     if (!acceptor[jtype]) continue;
+      int c1_id, c2_id;
+      c1_id = atom->map(special[i][0]);
+      c2_id = atom->map(special[i][1]);
+      // printf("##########%i, %i\n", c1_id, c2_id);
+      if (sqrt(rsq) >= pm.cutoff_dsf) {
+        // printf("%f %f\n", sqrt(rsq), pm.cutoff_dsf);
+        // printf("cutoff used\n");
+        continue;
+      }
+      // RIC calculation
+      r_DA[0] = x[j][0] - x[i][0];
+      r_DA[1] = x[j][1] - x[i][1];
+      r_DA[2] = x[j][2] - x[i][2];
+      domain->minimum_image(r_DA);
+      r_DA_sq = r_DA[0]*r_DA[0] + r_DA[1]*r_DA[1] + r_DA[2]*r_DA[2];
+      norm_da = sqrt(r_DA_sq);
 
-  //     delx = x[i][0] - x[j][0];
-  //     dely = x[i][1] - x[j][1];
-  //     delz = x[i][2] - x[j][2];
-  //     rsq = delx*delx + dely*dely + delz*delz;
+      r_DC1[0] = x[c1_id][0] - x[i][0];
+      r_DC1[1] = x[c1_id][1] - x[i][1];
+      r_DC1[2] = x[c1_id][2] - x[i][2];
+      domain->minimum_image(r_DC1);
 
-  //     for (kk = 0; kk < knum; kk++) {
-  //       if (molecular == Atom::MOLECULAR) k = atom->map(klist[kk]);
-  //       else k = atom->map(klist[kk]+tagprev);
-  //       if (k < 0) continue;
-  //       ktype = type[k];
-  //       m = type2param[itype][jtype][ktype];
-  //       if (m < 0) continue;
-  //       const Param &pm = params[m];
+      r_DC2[0] = x[c2_id][0] - x[i][0];
+      r_DC2[1] = x[c2_id][1] - x[i][1];
+      r_DC2[2] = x[c2_id][2] - x[i][2];
+      domain->minimum_image(r_DC2);
 
-  //       if (rsq < pm.cut_outersq) {
-  //         delr1[0] = x[i][0] - x[k][0];
-  //         delr1[1] = x[i][1] - x[k][1];
-  //         delr1[2] = x[i][2] - x[k][2];
-  //         domain->minimum_image(delr1);
-  //         rsq1 = delr1[0]*delr1[0] + delr1[1]*delr1[1] + delr1[2]*delr1[2];
-  //         r1 = sqrt(rsq1);
+      r_DCC[0] = - (r_DC1[0] + r_DC2[0]);
+      r_DCC[1] = - (r_DC1[1] + r_DC2[1]);
+      r_DCC[2] = - (r_DC1[2] + r_DC2[2]);
+      norm_dcc = sqrt(r_DCC[0]*r_DCC[0]+r_DCC[1]*r_DCC[1]+r_DCC[2]*r_DCC[2]);
 
-  //         delr2[0] = x[j][0] - x[k][0];
-  //         delr2[1] = x[j][1] - x[k][1];
-  //         delr2[2] = x[j][2] - x[k][2];
-  //         domain->minimum_image(delr2);
-  //         rsq2 = delr2[0]*delr2[0] + delr2[1]*delr2[1] + delr2[2]*delr2[2];
-  //         r2 = sqrt(rsq2);
+      cc_cross[0] = r_DC1[1]*r_DC2[2] - r_DC1[2]*r_DC2[1];
+      cc_cross[1] = r_DC1[2]*r_DC2[0] - r_DC1[0]*r_DC2[2];
+      cc_cross[2] = r_DC1[0]*r_DC2[1] - r_DC1[1]*r_DC2[0];
+      norm_cc_cross = sqrt(cc_cross[0]*cc_cross[0] + cc_cross[1]*cc_cross[1] + cc_cross[2]*cc_cross[2]);
+      // printf("DEBUG VECTORS: %12.8f %12.8f %12.8f\n", x[i][0], x[i][1], x[i][2]);
+      // printf("DEBUG VECTORS: %12.8f %12.8f %12.8f\n", r_DA[0], r_DA[1], r_DA[2]);
+      // printf("DEBUG VECTORS: %12.8f %12.8f %12.8f\n", r_DC1[0], r_DC1[1], r_DC1[2]);
+      // printf("DEBUG VECTORS: %12.8f %12.8f %12.8f\n", r_DC2[0], r_DC2[1], r_DC2[2]);
+      // for (int dd = 0; dd < 3; dd++) {
+        // printf("DEBUG VECTORS: %12.8f %12.8f %12.8f %12.8f %12.8f\n", r_DA[dd], r_DC1[dd], r_DC2[dd], r_DCC[dd], cc_cross[dd]);
+      // }
+      alpha_dot = (r_DCC[0]*r_DA[0]+r_DCC[1]*r_DA[1]+r_DCC[2]*r_DA[2])/(norm_da * norm_dcc);
+      beta_dot = (cc_cross[0]*r_DA[0]+cc_cross[1]*r_DA[1]+cc_cross[2]*r_DA[2])/(norm_da * norm_cc_cross);
+      // printf("a:%12.8f b:%12.8f\n", alpha_dot, beta_dot);
+      
+      // Energy calc
+      morse_pi = 1 - exp(-a_p * (norm_da - rp_0));
+      morse_sig = 1 - exp(-a_s * (norm_da - rs_0));
 
-  //         // angle (cos and sin)
+      D_pi_beta = beta_dot*beta_dot;
+      E_pi = dp_0 * D_pi_beta * morse_pi * morse_pi;
 
-  //         c = delr1[0]*delr2[0] + delr1[1]*delr2[1] + delr1[2]*delr2[2];
-  //         c /= r1*r2;
-  //         if (c > 1.0) c = 1.0;
-  //         if (c < -1.0) c = -1.0;
-  //         ac = acos(c);
+      D_sig_alpha = (1.5 + alpha_dot)/(2.5) * (alpha_dot)*(alpha_dot);
+      E_sig = ds_0 * D_sig_alpha * morse_sig * morse_sig;
 
-  //         if (ac > pm.cut_angle && ac < (2.0*MY_PI - pm.cut_angle)) {
-  //           s = sqrt(1.0 - c*c);
-  //           if (s < SMALL) s = SMALL;
+      E = E_sig + E_pi;
+      // printf("%12.8f %12.8f %12.8f\n", E_sig, E_pi, E);
+      // printf("##### %i %i\n", i,j);
+      // printf("%12.8f %12.8f %12.8f\n", r_DA[0], r_DA[1], r_DA[2]);
+      // printf("%12.8f %12.8f %12.8f\n", r_DC1[0], r_DC1[1], r_DC1[2]);
+      // printf("%12.8f %12.8f %12.8f\n", r_DC2[0], r_DC2[1], r_DC2[2]);
+      // Force calc
+      dE_sig_dr = ds_0 * (1.5+alpha_dot)/2.5 * (alpha_dot * alpha_dot) * 2 * morse_sig * a_s * exp(-a_s * (norm_da - rs_0));
+      dE_pi_dr = dp_0 * (beta_dot*beta_dot) * 2 * morse_pi * a_p * exp(-a_p * (norm_da - rp_0));
+      dE_dr = dE_sig_dr + dE_pi_dr;
+      dE_sig_dadot = ds_0 * morse_sig*morse_sig * alpha_dot * (1.2*alpha_dot+1.2);
+      dE_sig_dbdot = 0;
+      dE_pi_dadot = 0;
+      dE_pi_dbdot = dp_0 * 2 * beta_dot * morse_pi * morse_pi;
+      dE_dadot = dE_sig_dadot + dE_pi_dadot;
+      dE_dbdot = dE_sig_dbdot + dE_pi_dbdot;
 
-  //           // LJ-specific kernel
+      cross_c11_c21 = (r_DC1[1]*r_DC2[2] - r_DC1[2]*r_DC2[1]);
+      cross_c02_20 = (r_DC1[0]*r_DC2[1] - r_DC1[1]*r_DC2[0]);
 
-  //           r2inv = 1.0/rsq;
-  //           r10inv = r2inv*r2inv*r2inv*r2inv*r2inv;
-  //           force_kernel = r10inv*(pm.lj1*r2inv - pm.lj2)*r2inv *
-  //             powint(c,pm.ap);
-  //           force_angle = pm.ap * r10inv*(pm.lj3*r2inv - pm.lj4) *
-  //             powint(c,pm.ap-1)*s;
+      a_dot_a = r_DA[0]*r_DA[0] + r_DA[1]*r_DA[1] + r_DA[2]*r_DA[2];
+      sqrt_a_dot_a = sqrt(a_dot_a);
 
-  //           eng_lj = r10inv*(pm.lj3*r2inv - pm.lj4);
+      dadx_term1 = (r_DA[0]*(r_DC1[0] + r_DC2[0]) + r_DA[1]*(r_DC1[1] + r_DC2[1]) + r_DA[2]*(r_DC1[2] + r_DC2[2]));
+      dadx_term2 = pow(r_DC1[0] + r_DC2[0], 2.0) + pow(r_DC1[1] + r_DC2[1], 2.0) + pow(r_DC1[2] + r_DC2[2], 2.0);
 
-  //           force_switch=0.0;
+      dbdx_term1 = (r_DA[0]*cross_c11_c21 - r_DA[1]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]) + r_DA[2]*cross_c02_20);
+      dbdx_term2 = (cross_c02_20*cross_c02_20 + pow(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0], 2.0) + cross_c11_c21*cross_c11_c21);
+      dbdx_terma = (pow(a_dot_a, 3.0/2.0)*sqrt(dbdx_term2));
+      // printf("dbdx_term2, a_dot_a, dbdx_terma: %12.8f %12.8f %12.8f\n", dbdx_term2, a_dot_a, dbdx_terma);
+      dbdx_termc = (sqrt_a_dot_a*pow(dbdx_term2, 3.0/2.0));
+    
+    
+      for (int k = 0; k < 3; k++) {
+        // # acceptor
+        dr_dx = r_DA[k]/sqrt_a_dot_a;
+        da_dx = (r_DA[k]*dadx_term1 - (r_DC1[k] + r_DC2[k])*(a_dot_a))/(pow(a_dot_a, 3.0/2.0)*sqrt(dadx_term2));
+          
+        if (k == 0) {
+          db_dx = (-r_DA[0]*dbdx_term1 + cross_c11_c21*(a_dot_a))/dbdx_terma;
+        } else if (k == 1) {
+          db_dx = (-r_DA[1]*dbdx_term1 + (-r_DC1[0]*r_DC2[2] + r_DC1[2]*r_DC2[0])*(a_dot_a))/dbdx_terma;
+        } else if (k == 2) {
+          db_dx = (-r_DA[2]*dbdx_term1 + cross_c02_20*(a_dot_a))/dbdx_terma;
+        }
+        f[j][k] = dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx;
+        // printf("%12.8f, %12.8f, %12.8f, %12.8f, %12.8f, %12.8f\n", dE_dr, dr_dx, dE_dadot, da_dx,  dE_dbdot, db_dx);
+        // printf("%12.8f\n", dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx);
+        // #c1
+        dr_dx = 0;
+        da_dx = (-r_DA[k]*(dadx_term2) + (r_DC1[k] + r_DC2[k])*dadx_term1)/(sqrt_a_dot_a*pow(dadx_term2, 3.0/2.0));
+        if (k == 0) {
+          db_dx = ((-r_DA[1]*r_DC2[2] + r_DA[2]*r_DC2[1])*dbdx_term2 - (r_DC2[1]*cross_c02_20 + r_DC2[2]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]))*dbdx_term1)/dbdx_termc;
+        } else if (k == 1) {
+          db_dx = ((r_DA[0]*r_DC2[2] - r_DA[2]*r_DC2[0])*dbdx_term2 + (r_DC2[0]*cross_c02_20 - r_DC2[2]*cross_c11_c21)*dbdx_term1)/dbdx_termc;
+        } else if (k == 2) {
+          db_dx = ((-r_DA[0]*r_DC2[1] + r_DA[1]*r_DC2[0])*dbdx_term2 + (r_DC2[0]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]) + r_DC2[1]*cross_c11_c21)*dbdx_term1)/dbdx_termc;
+        }
+        f[c1_id][k] = dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx;
 
-  //           if (rsq > pm.cut_innersq) {
-  //             switch1 = (pm.cut_outersq-rsq) * (pm.cut_outersq-rsq) *
-  //                       (pm.cut_outersq + 2.0*rsq - 3.0*pm.cut_innersq) /
-  //                       pm.denom_vdw;
-  //             switch2 = 12.0*rsq * (pm.cut_outersq-rsq) *
-  //                       (rsq-pm.cut_innersq) / pm.denom_vdw;
+        // #c2
+        if (k == 0) {
+          db_dx = ((r_DA[1]*r_DC1[2] - r_DA[2]*r_DC1[1])*dbdx_term2 + (r_DC1[1]*cross_c02_20 + r_DC1[2]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]))*dbdx_term1)/dbdx_termc;
+        } else if (k == 1) {
+          db_dx = ((-r_DA[0]*r_DC1[2] + r_DA[2]*r_DC1[0])*dbdx_term2 - (r_DC1[0]*cross_c02_20 - r_DC1[2]*cross_c11_c21)*dbdx_term1)/dbdx_termc;
+        } else if (k == 2) {
+          db_dx = ((r_DA[0]*r_DC1[1] - r_DA[1]*r_DC1[0])*dbdx_term2 - (r_DC1[0]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]) + r_DC1[1]*cross_c11_c21)*dbdx_term1)/dbdx_termc;
+        }
+        f[c2_id][k] = dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx;
+    
+        // #donor
+        f[i][k] = - (f[j][k] + f[c1_id][k] + f[c2_id][k]);
+        // printf("i:%i k:% \n", i,k);
 
-  //             force_kernel *= switch1;
-  //             force_angle  *= switch1;
-  //             force_switch  = eng_lj*switch2/rsq;
-  //             eng_lj       *= switch1;
-  //           }
+      }
+        // printf("#########\n");
+        // for (int i = 0; i < inum; i++) {
+        //   for (int j = 0; j < 3; j++) {
+        //     printf("%12.8f ", f[i][j]);
+        //   }
+        //   printf("\n");
+        // }
+    fj[0] = f[j][0];
+    fj[1] = f[j][1];
+    fj[2] = f[j][2];
 
-  //           if (eflag) {
-  //             evdwl = eng_lj * powint(c,pm.ap);
-  //             evdwl *= factor_hb;
-  //             ehbond += evdwl;
-  //           }
+    fc1[0] = f[c1_id][0];
+    fc1[1] = f[c1_id][1];
+    fc1[2] = f[c1_id][2];
 
-  //           a = factor_hb*force_angle/s;
-  //           b = factor_hb*force_kernel;
-  //           d = factor_hb*force_switch;
+    fc2[0] = f[c2_id][0];
+    fc2[1] = f[c2_id][1];
+    fc2[2] = f[c2_id][2];
+    if (evflag) ev_tally4(j,c1_id,c2_id,i,E,fj,fc1,fc2,r_DA,r_DC1,r_DC2);
+    }
+  }
 
-  //           a11 = a*c / rsq1;
-  //           a12 = -a / (r1*r2);
-  //           a22 = a*c / rsq2;
-
-  //           vx1 = a11*delr1[0] + a12*delr2[0];
-  //           vx2 = a22*delr2[0] + a12*delr1[0];
-  //           vy1 = a11*delr1[1] + a12*delr2[1];
-  //           vy2 = a22*delr2[1] + a12*delr1[1];
-  //           vz1 = a11*delr1[2] + a12*delr2[2];
-  //           vz2 = a22*delr2[2] + a12*delr1[2];
-
-  //           fi[0] = vx1 + b*delx + d*delx;
-  //           fi[1] = vy1 + b*dely + d*dely;
-  //           fi[2] = vz1 + b*delz + d*delz;
-  //           fj[0] = vx2 - b*delx - d*delx;
-  //           fj[1] = vy2 - b*dely - d*dely;
-  //           fj[2] = vz2 - b*delz - d*delz;
-
-  //           f[i][0] += fi[0];
-  //           f[i][1] += fi[1];
-  //           f[i][2] += fi[2];
-
-  //           f[j][0] += fj[0];
-  //           f[j][1] += fj[1];
-  //           f[j][2] += fj[2];
-
-  //           f[k][0] -= vx1 + vx2;
-  //           f[k][1] -= vy1 + vy2;
-  //           f[k][2] -= vz1 + vz2;
-
-  //           // KIJ instead of IJK b/c delr1/delr2 are both with respect to k
-
-  //           if (evflag) ev_tally3(k,i,j,evdwl,0.0,fi,fj,delr1,delr2);
-
-  //           hbcount++;
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
-
-  // if (eflag_global) {
-  //   pvector[0] = hbcount;
-  //   pvector[1] = ehbond;
-  // }
 }
 
 /* ----------------------------------------------------------------------
@@ -286,8 +339,8 @@ void PairManybodyDonorAcceptor::allocate()
 
   memory->create(cutsq,n+1,n+1,"pair:cutsq");
 
-  donor = new int[n+1];
-  acceptor = new int[n+1];
+  // donor = new int[n+1];
+  // acceptor = new int[n+1];
   // memory->create(type2param,n+1,n+1,n+1,"pair:type2param");
   memory->create(type2param,n+1,n+1,"pair:type2param");
 
@@ -320,8 +373,8 @@ void PairManybodyDonorAcceptor::settings(int narg, char **arg)
 void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
 {
   // printf("%d\n",narg);
-  if (narg != 5) {
-    error->all(FLERR,"Incorrect args for pair coefficients, need 5 (2 ids, 3 pars)");
+  if (narg != 9) {
+    error->all(FLERR,"Incorrect args for pair coefficients, need 6 (2 ids, 1 donor/acceptor, 3 pars)");
   }
   if (!allocated) allocate();
 
@@ -333,17 +386,40 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
   utils::bounds(FLERR,arg[0],1,atom->ntypes,ilo,ihi,error); // arg[0] is always the donor
   utils::bounds(FLERR,arg[1],1,atom->ntypes,jlo,jhi,error); // arg[1] is always the acceptor
   printf("ilo, ihi: %i %i\n", ilo, ihi);
+  printf("jlo, jhi: %i %i\n", jlo, jhi);
 
-  // int donor_flag;
+  int type_i, type_j;
+  type_i = utils::numeric(FLERR,arg[0],false,lmp);
+  type_j  = utils::numeric(FLERR,arg[1],false,lmp);
+
+  if (strcmp(arg[2],"i") == 0) {
+    donor_typeid = MIN(type_i, type_j);
+    acceptor_typeid = MAX(type_i, type_j);
+  } else if (strcmp(arg[2],"j") == 0) {
+    donor_typeid = MAX(type_i, type_j);
+    acceptor_typeid = MIN(type_i, type_j);
+  } else {
+    error->all(FLERR,"Incorrect args for pair coefficients, third flag must be either i or j");
+  }
+  printf("donortype %i\n", donor_typeid);
+  printf("acceptor_typeid %i\n", acceptor_typeid);
+
+  // int donor_flag = 0;
   // if (strcmp(arg[3],"i") == 0) donor_flag = 0;
   // else if (strcmp(arg[3],"j") == 0) donor_flag = 1;
   // else error->all(FLERR,"Incorrect args for pair coefficients");
 
   // double epsilon_one = utils::numeric(FLERR,arg[4],false,lmp);
   // double sigma_one = utils::numeric(FLERR,arg[5],false,lmp);
-  double de = utils::numeric(FLERR,arg[2],false,lmp);
-  double a  = utils::numeric(FLERR,arg[3],false,lmp);
-  double r0 = utils::numeric(FLERR,arg[4],false,lmp);
+  double dp_0 = utils::numeric(FLERR,arg[3],false,lmp);
+  double ds_0 = utils::numeric(FLERR,arg[4],false,lmp);
+  double a_p  = utils::numeric(FLERR,arg[5],false,lmp);
+  double a_s  = utils::numeric(FLERR,arg[6],false,lmp);
+  double rp_0 = utils::numeric(FLERR,arg[7],false,lmp);
+  double rs_0 = utils::numeric(FLERR,arg[8],false,lmp);
+  // double de = utils::numeric(FLERR,arg[3],false,lmp);
+  // double a  = utils::numeric(FLERR,arg[4],false,lmp);
+  // double r0 = utils::numeric(FLERR,arg[5],false,lmp);
 
   // int ap_one = ap_global;
   // if (narg > 6) ap_one = utils::inumeric(FLERR,arg[6],false,lmp);
@@ -370,9 +446,12 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
     memset(params + nparams, 0, CHUNK*sizeof(Param));
   }
 
-  params[nparams].de = de;
-  params[nparams].a = a;
-  params[nparams].r0 = r0;
+  params[nparams].dp_0 = dp_0;
+  params[nparams].ds_0 = ds_0;
+  params[nparams].a_p = a_p;
+  params[nparams].a_s = a_s;
+  params[nparams].rp_0 = rp_0;
+  params[nparams].rs_0 = rs_0;
   params[nparams].cutoff_dsf = cutoff_dsf;
 
   // params[nparams].epsilon = epsilon_one;
@@ -393,7 +472,8 @@ void PairManybodyDonorAcceptor::coeff(int narg, char **arg)
   for (int i = ilo; i <= ihi; i++) {
     for (int j = MAX(jlo,i); j <= jhi; j++) {
       // printf("nparams %d\n", nparams);
-      type2param[j][i] = nparams; // do we need something here for donor/acceptor?
+      type2param[i][j] = nparams; // do we need something here for donor/acceptor?
+      printf("nparams %i\n", nparams);
       count++;
     }
   }
@@ -450,20 +530,20 @@ void PairManybodyDonorAcceptor::init_style()
 //           acceptor[j] = 1;
 //         }
 
-  int anyflag = 0;
-  int n = atom->ntypes;
-  for (int m = 1; m <= n; m++) {
-    donor[m] = acceptor[m] = 0;
-  }
-  for (int i = 1; i <= n; i++) {
-    for (int j = 1; j <= n; j++) {
-      if (type2param[i][j] >= 0) {
-        anyflag = 1;
-        donor[i] = 1;
-        acceptor[j] = 1;
-      }
-    }
-  }
+  // int anyflag = 0;
+  // int n = atom->ntypes;
+  // for (int m = 1; m <= n; m++) {
+  //   donor[m] = acceptor[m] = 0;
+  // }
+  // for (int i = 1; i <= n; i++) {
+  //   for (int j = 1; j <= n; j++) {
+  //     if (type2param[i][j] >= 0) {
+  //       anyflag = 1;
+  //       donor[i] = 1;
+  //       acceptor[j] = 1;
+  //     }
+  //   }
+  // }
 
 //   if (!anyflag) error->all(FLERR,"No pair hbond/dreiding coefficients set");
 
@@ -496,19 +576,20 @@ void PairManybodyDonorAcceptor::init_style()
 
 // double PairManybodyDonorAcceptor::init_one(int i, int j)
 // {
-//   int m;
+//   printf("init one\n");
+//   // int m;
 
-//   // return maximum cutoff for any K with I,J = D,A or J,I = D,A
-//   // donor/acceptor is not symmetric, IJ interaction != JI interaction
+//   // // return maximum cutoff for any K with I,J = D,A or J,I = D,A
+//   // // donor/acceptor is not symmetric, IJ interaction != JI interaction
 
-//   double cut = 0.0;
-//   for (int k = 1; k <= atom->ntypes; k++) {
-//     m = type2param[i][j][k];
-//     if (m >= 0) cut = MAX(cut,params[m].cut_outer);
-//     m = type2param[j][i][k];
-//     if (m >= 0) cut = MAX(cut,params[m].cut_outer);
-//   }
-//   return cut;
+//   // double cut = 0.0;
+//   // for (int k = 1; k <= atom->ntypes; k++) {
+//   //   m = type2param[i][j][k];
+//   //   if (m >= 0) cut = MAX(cut,params[m].cut_outer);
+//   //   m = type2param[j][i][k];
+//   //   if (m >= 0) cut = MAX(cut,params[m].cut_outer);
+//   // }
+//   // return cut;
 // }
 
 /* ---------------------------------------------------------------------- */
