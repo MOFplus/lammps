@@ -88,17 +88,23 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
   double switch1,switch2;
   int *ilist,*jlist,*numneigh,**firstneigh;
 
-  double norm_da, norm_dcc, norm_cc_cross, alpha_dot, beta_dot;
+  double norm_da, norm_dcc, norm_cc_cross, alpha_dot, beta_dot, cut;
   double r_DCC[3], cc_cross[3];
-  double D_pi_beta, E_pi, D_sig_alpha, E_sig, E;
+  double D_pi_beta, E_pi, D_sig_alpha, E_sig;
   double dE_sig_dr, dE_pi_dr, dE_dr, dE_sig_dadot, dE_sig_dbdot, dE_pi_dadot, dE_pi_dbdot;
   double dE_dadot, dE_dbdot, cross_c11_c21, cross_c02_20, a_dot_a, sqrt_a_dot_a;
   double dadx_term1, dadx_term2, dbdx_term1, dbdx_term2, dbdx_terma, dbdx_termc;
-  double morse_pi, morse_sig; 
-  double dr_dx, da_dx, db_dx;
+  double morse_pi_r, morse_sig_r;
+  double dr_dx, da_dx, db_dx, morse_pi_cut, morse_sig_cut;
+  double exp_pi_r, exp_pi_cut, exp_sig_r, exp_sig_cut;
+  double exp_pi_m1_r, exp_pi_m1_cut, exp_sig_m1_r, exp_sig_m1_cut, pre_pi, pre_sig;
+  double E_r, E_cut, dE_dr_cut, d2E_dr2_cut, E_sfg, dE_dr_r, dE_sfg_dr;
+  double dpre_sig_da, dE_r_da, dE_cut_da, dE_dr_cut_da, d2E_dr2_cut_da, dE_sfg_da;
+  double dpre_pi_db, dE_r_db, dE_cut_db, dE_dr_cut_db, d2E_dr2_cut_db, dE_sfg_db;
+  double e_test;
   // tagint *klist;
 
-  E = 0.0;
+  e_test = 0.0;
   ev_init(eflag,vflag);
 
   double **x = atom->x;
@@ -208,33 +214,57 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
       alpha_dot = (r_DCC[0]*r_DA[0]+r_DCC[1]*r_DA[1]+r_DCC[2]*r_DA[2])/(norm_da * norm_dcc);
       beta_dot = (cc_cross[0]*r_DA[0]+cc_cross[1]*r_DA[1]+cc_cross[2]*r_DA[2])/(norm_da * norm_cc_cross);
       // printf("a:%12.8f b:%12.8f\n", alpha_dot, beta_dot);
-      
+      cut = pm.cutoff_dsf;
+      // printf("%f %f %f\n", norm_da, beta_dot, alpha_dot);
       // Energy calc
-      morse_pi = 1 - exp(-a_p * (norm_da - rp_0));
-      morse_sig = 1 - exp(-a_s * (norm_da - rs_0));
-
+      exp_pi_r = exp(-a_p * (norm_da - rp_0)); // "works"
+      exp_pi_cut = exp(-a_p * (cut - rp_0));
+      exp_sig_r = exp(-a_s * (norm_da - rs_0)); // DOES NOT WORK
+      exp_sig_cut = exp(-a_s * (cut - rs_0));
       D_pi_beta = beta_dot*beta_dot;
-      E_pi = dp_0 * D_pi_beta * morse_pi * morse_pi;
+      D_sig_alpha = (1.5 + alpha_dot)/(2.5) * alpha_dot*alpha_dot;
 
-      D_sig_alpha = (1.5 + alpha_dot)/(2.5) * (alpha_dot)*(alpha_dot);
-      E_sig = ds_0 * D_sig_alpha * morse_sig * morse_sig;
+      exp_pi_m1_r = exp_pi_r - 1;
+      exp_pi_m1_cut = exp_pi_cut - 1;
+      exp_sig_m1_r = exp_sig_r - 1;
+      exp_sig_m1_cut = exp_sig_cut - 1;
+      pre_pi = dp_0 * D_pi_beta;
+      pre_sig = ds_0 * D_sig_alpha;
+      // printf("%f %f %f %f %f %f\n", exp_pi_m1_r, exp_pi_m1_cut,exp_sig_m1_r,  exp_sig_m1_r, pre_pi, pre_sig);
 
-      E = E_sig + E_pi;
-      // printf("%12.8f %12.8f %12.8f\n", E_sig, E_pi, E);
-      // printf("##### %i %i\n", i,j);
-      // printf("%12.8f %12.8f %12.8f\n", r_DA[0], r_DA[1], r_DA[2]);
-      // printf("%12.8f %12.8f %12.8f\n", r_DC1[0], r_DC1[1], r_DC1[2]);
-      // printf("%12.8f %12.8f %12.8f\n", r_DC2[0], r_DC2[1], r_DC2[2]);
+      E_r =  pre_sig * exp_sig_m1_r*exp_sig_m1_r + 
+             pre_pi  * exp_pi_m1_r*exp_pi_m1_r;
+      printf("DEBUG: %f %f %f %f\n", pre_sig, exp_sig_m1_r, pre_pi, exp_pi_m1_r);
+      E_cut =  pre_sig * exp_sig_m1_cut*exp_sig_m1_cut + 
+               pre_pi  * exp_pi_m1_cut*exp_pi_m1_cut;
+      dE_dr_cut = -2 * (pre_sig * a_s * exp_sig_cut * exp_sig_m1_cut + pre_pi * a_p * exp_pi_cut * exp_pi_m1_cut);
+      d2E_dr2_cut = 2 * (pre_sig * a_s*a_s * exp_sig_cut * (2*exp_sig_cut - 1) + 
+                         pre_pi  * a_p*a_p * exp_pi_cut  * (2*exp_pi_cut  - 1));
+      E_sfg = E_r - E_cut - (norm_da - cut)*dE_dr_cut - 0.5*(norm_da - cut)*(norm_da - cut)*d2E_dr2_cut;
+      e_test = E_sfg;
+      printf("DEBUG - energy: %12.8f\n", E_r);
+      printf("DEBUG - dist: %12.8f\n", norm_da);
+
       // Force calc
-      dE_sig_dr = ds_0 * (1.5+alpha_dot)/2.5 * (alpha_dot * alpha_dot) * 2 * morse_sig * a_s * exp(-a_s * (norm_da - rs_0));
-      dE_pi_dr = dp_0 * (beta_dot*beta_dot) * 2 * morse_pi * a_p * exp(-a_p * (norm_da - rp_0));
-      dE_dr = dE_sig_dr + dE_pi_dr;
-      dE_sig_dadot = ds_0 * morse_sig*morse_sig * alpha_dot * (1.2*alpha_dot+1.2);
-      dE_sig_dbdot = 0;
-      dE_pi_dadot = 0;
-      dE_pi_dbdot = dp_0 * 2 * beta_dot * morse_pi * morse_pi;
-      dE_dadot = dE_sig_dadot + dE_pi_dadot;
-      dE_dbdot = dE_sig_dbdot + dE_pi_dbdot;
+      dE_dr_r = -2 * (pre_sig * a_s * exp_sig_r * exp_sig_m1_r + pre_pi * a_p * exp_pi_r * exp_pi_m1_r);
+      dE_sfg_dr = dE_dr_r - dE_dr_cut - (norm_da - cut)*d2E_dr2_cut;
+      dE_dr = dE_sfg_dr;
+      
+      dpre_sig_da = ds_0 * alpha_dot*(1.2*alpha_dot+1.2);
+      dE_r_da =  dpre_sig_da * exp_sig_m1_r*exp_sig_m1_r;
+      dE_cut_da =  dpre_sig_da * exp_sig_m1_cut*exp_sig_m1_cut;
+      dE_dr_cut_da = -2 * dpre_sig_da * a_s * exp_sig_cut * exp_sig_m1_cut;
+      d2E_dr2_cut_da = 2 * dpre_sig_da * a_s*a_s * exp_sig_cut * (2*exp_sig_cut - 1);
+      dE_sfg_da = dE_r_da - dE_cut_da - (norm_da - cut)*dE_dr_cut_da - 0.5*(norm_da - cut)*(norm_da - cut)*d2E_dr2_cut_da;
+      dE_dadot = dE_sfg_da;
+
+      dpre_pi_db = dp_0 * 2*beta_dot;
+      dE_r_db =  dpre_pi_db * exp_pi_m1_r*exp_pi_m1_r;
+      dE_cut_db =  dpre_pi_db * exp_pi_m1_cut*exp_pi_m1_cut;
+      dE_dr_cut_db = -2 * dpre_pi_db * a_p * exp_pi_cut * exp_pi_m1_cut;
+      d2E_dr2_cut_db = 2 * dpre_pi_db * a_p*a_p * exp_pi_cut * (2*exp_pi_cut - 1);
+      dE_sfg_db = dE_r_db - dE_cut_db - (norm_da - cut)*dE_dr_cut_db - 0.5*(norm_da - cut)*(norm_da - cut)*d2E_dr2_cut_db;
+      dE_dbdot = dE_sfg_db;
 
       cross_c11_c21 = (r_DC1[1]*r_DC2[2] - r_DC1[2]*r_DC2[1]);
       cross_c02_20 = (r_DC1[0]*r_DC2[1] - r_DC1[1]*r_DC2[0]);
@@ -312,16 +342,16 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
     fc2[0] = f[c2_id][0];
     fc2[1] = f[c2_id][1];
     fc2[2] = f[c2_id][2];
-    if (evflag) ev_tally4(j,c1_id,c2_id,i,E,fj,fc1,fc2,r_DA,r_DC1,r_DC2);
+    if (evflag) ev_tally4(j,c1_id,c2_id,i,e_test,fj,fc1,fc2,r_DA,r_DC1,r_DC2);
     }
   }
 
 }
 
-double PairManybodyDonorAcceptorSFG::nameme(double r, double test)
-{
-  return r;
-}
+// double PairManybodyDonorAcceptorSFG::energy_base(double r, double a, double b)
+// {
+//   return e;
+// }
 
 /* ----------------------------------------------------------------------
    allocate all arrays

@@ -64,7 +64,7 @@ class PairManybodyDonorAcceptorSFG : public Pair {
   int **type2param;
 
   void allocate();
-  double nameme(double, double);
+  // double energy_base_r(double);
 };
 
 }    // namespace LAMMPS_NS
