@@ -294,7 +294,7 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
         } else if (k == 2) {
           db_dx = (-r_DA[2]*dbdx_term1 + cross_c02_20*(a_dot_a))/dbdx_terma;
         }
-        f[j][k] = dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx;
+        f[j][k] = -(dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx);
         // printf("%12.8f, %12.8f, %12.8f, %12.8f, %12.8f, %12.8f\n", dE_dr, dr_dx, dE_dadot, da_dx,  dE_dbdot, db_dx);
         // printf("%12.8f\n", dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx);
         // #c1
@@ -307,7 +307,7 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
         } else if (k == 2) {
           db_dx = ((-r_DA[0]*r_DC2[1] + r_DA[1]*r_DC2[0])*dbdx_term2 + (r_DC2[0]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]) + r_DC2[1]*cross_c11_c21)*dbdx_term1)/dbdx_termc;
         }
-        f[c1_id][k] = dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx;
+        f[c1_id][k] = -(dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx);
 
         // #c2
         if (k == 0) {
@@ -317,7 +317,7 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
         } else if (k == 2) {
           db_dx = ((r_DA[0]*r_DC1[1] - r_DA[1]*r_DC1[0])*dbdx_term2 - (r_DC1[0]*(r_DC1[0]*r_DC2[2] - r_DC1[2]*r_DC2[0]) + r_DC1[1]*cross_c11_c21)*dbdx_term1)/dbdx_termc;
         }
-        f[c2_id][k] = dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx;
+        f[c2_id][k] = -(dE_dr * dr_dx + dE_dadot * da_dx + dE_dbdot * db_dx);
     
         // #donor
         f[i][k] = - (f[j][k] + f[c1_id][k] + f[c2_id][k]);
