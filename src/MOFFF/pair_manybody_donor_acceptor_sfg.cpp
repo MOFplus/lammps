@@ -44,7 +44,7 @@ using namespace MathSpecial;
 
 PairManybodyDonorAcceptorSFG::PairManybodyDonorAcceptorSFG(LAMMPS *lmp) : Pair(lmp)
 {
-  no_virial_fdotr_compute = 0;
+  no_virial_fdotr_compute = 1;
   restartinfo = 0;
 
   nparams = maxparam = 0;
@@ -143,7 +143,9 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
       rsq = delx*delx + dely*dely + delz*delz; 
 
       m = type2param[itype][jtype];
-      if (m < 0) continue;
+      if (m < 0) {
+        continue;
+      }
       const Param &pm = params[m];
       double dp_0 = pm.dp_0;
       double ds_0 = pm.ds_0;
@@ -364,10 +366,13 @@ void PairManybodyDonorAcceptorSFG::coeff(int narg, char **arg)
   type_i = utils::numeric(FLERR,arg[0],false,lmp);
   type_j  = utils::numeric(FLERR,arg[1],false,lmp);
 
+  int donor;
   if (strcmp(arg[2],"i") == 0) {
+    donor = 0;
     donor_typeid = MIN(type_i, type_j);
     acceptor_typeid = MAX(type_i, type_j);
   } else if (strcmp(arg[2],"j") == 0) {
+    donor = 1;
     donor_typeid = MAX(type_i, type_j);
     acceptor_typeid = MIN(type_i, type_j);
   } else {
@@ -406,7 +411,11 @@ void PairManybodyDonorAcceptorSFG::coeff(int narg, char **arg)
   int count = 0;
   for (int i = ilo; i <= ihi; i++) {
     for (int j = MAX(jlo,i); j <= jhi; j++) {
-      type2param[i][j] = nparams; 
+      if (donor == 0){
+        type2param[i][j] = nparams; 
+      } else if (donor == 1) {
+        type2param[j][i] = nparams;
+      }
       count++;
     }
   }
