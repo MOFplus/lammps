@@ -46,6 +46,8 @@ Pairnb3nTest::Pairnb3nTest(LAMMPS *lmp) : Pair(lmp)
 {
   no_virial_fdotr_compute = 1;
   restartinfo = 0;
+  single_enable = 0;
+  manybody_flag = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -61,7 +63,7 @@ Pairnb3nTest::~Pairnb3nTest()
 
 void Pairnb3nTest::compute(int eflag, int vflag)
 {
-  int i,j,k,m,ii,jj,kk,inum,jnum,itype,jtype,ktype,iatom,imol;
+  int i,j,k,m,ii,jj,kk,inum,jnum,itype,jtype,ktype,iatom,imol,j_molid,k_molid;
   tagint tagprev;
   double fj[3],fk[3];
   int *ilist,*jlist,*numneigh,**firstneigh;
@@ -83,7 +85,8 @@ void Pairnb3nTest::compute(int eflag, int vflag)
   double **x = atom->x;
   double **f = atom->f;
   tagint *tag = atom->tag;
-  int *molindex = atom->molindex;
+  int *molindex = atom->molindex; 
+  int *molecule = atom->molecule; // for this work the "molecules" addon in molsys has to be loaded
   int *molatom = atom->molatom;
   tagint **special = atom->special;
   int **nspecial = atom->nspecial;
@@ -110,63 +113,66 @@ void Pairnb3nTest::compute(int eflag, int vflag)
     jnum = numneigh[i];
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
-      // factor_hb = special_lj[sbmask(j)];
       j &= NEIGHMASK;
 
       jtype = type[j];
+      j_molid = molecule[j];
       if (edge_typeid != jtype) {
         continue;
       }
-      for (kk = jj; kk < jnum; kk++) {
+      for (kk = jj+1; kk < jnum; kk++) {
         k = jlist[kk];
         k &= NEIGHMASK;
 
         ktype = type[k];
+        k_molid = molecule[k];
         if (edge_typeid != ktype) {
           continue;
         }
-        
+        if (j_molid == k_molid) {
+          continue;
+        }
         // RIC calc
         xyz_ij[0] = dx_ij = x[j][0] - x[i][0];
         xyz_ij[1] = dy_ij = x[j][1] - x[i][1];
         xyz_ij[2] = dz_ij = x[j][2] - x[i][2];
         r_ij = sqrt(dx_ij*dx_ij + dy_ij*dy_ij + dz_ij*dz_ij); 
-
+        
         xyz_ik[0] = dx_ik = x[k][0] - x[i][0];
         xyz_ik[1] = dy_ik = x[k][1] - x[i][1];
         xyz_ik[2] = dz_ik = x[k][2] - x[i][2];
         r_ik = sqrt(dx_ik*dx_ik + dy_ik*dy_ik + dz_ik*dz_ik);
-
+        
         if (r_ij >= cutoff || r_ik >= cutoff) {
           continue;
         }
-        dot_a = (dx_ij*dx_ik + dy_ij*dy_ik + dz_ij*dz_ik)/(r_ij * r_ik);
+        dot_a = (dx_ij*dx_ik + dy_ij*dy_ik + dz_ij*dz_ik)/(r_ij * r_ik); 
         
         // Energy calc
-        dot_a_ref = cos(a_ref);
-        cut_ij = (cos(M_PI/cutoff * r_ij)+1)/2;
-        cut_ik = (cos(M_PI/cutoff * r_ik)+1)/2;
-        eps_a = k_a * (dot_a - dot_a_ref)*(dot_a - dot_a_ref);
-        E = eps_a  * cut_ij * cut_ik;
+        dot_a_ref = cos(a_ref); 
+        cut_ij = (cos(M_PI/cutoff * r_ij)+1.0)/2.0;
+        cut_ik = (cos(M_PI/cutoff * r_ik)+1.0)/2.0;
+        eps_a = k_a * (dot_a - dot_a_ref)*(dot_a - dot_a_ref); 
+        E = eps_a * cut_ij * cut_ik;
         
         // Force calc
-        diff_cut_ij = -(M_PI/cutoff * sin((M_PI * r_ij)/cutoff))/2;
-        diff_cut_ik = -(M_PI/cutoff * sin((M_PI * r_ik)/cutoff))/2;
+        diff_cut_ij = -(M_PI/cutoff * sin((M_PI * r_ij)/cutoff))/2.0;
+        diff_cut_ik = -(M_PI/cutoff * sin((M_PI * r_ik)/cutoff))/2.0;
         
         dE_dr_ij = eps_a * cut_ik * diff_cut_ij;
         dE_dr_ik = eps_a * cut_ij * diff_cut_ik;
-        dE_da    = 2*k_a*(dot_a - dot_a_ref) * cut_ij * cut_ik;
+        dE_da    = 2.0*k_a*(dot_a - dot_a_ref) * cut_ij * cut_ik;
+
+        dot_ij = xyz_ij[0]*xyz_ij[0]+xyz_ij[1]*xyz_ij[1]+xyz_ij[2]*xyz_ij[2];
+        dot_ik = xyz_ik[0]*xyz_ik[0]+xyz_ik[1]*xyz_ik[1]+xyz_ik[2]*xyz_ik[2];
+        denominator1 = 1.0/(pow(dot_ij, 3.0/2.0) * sqrt(dot_ik));
+        denominator2 = 1.0/(pow(dot_ik, 3.0/2.0) * sqrt(dot_ij));
 
         for (int m = 0; m < 3; m ++) {
-          dot_ij = xyz_ij[0]*xyz_ij[0]+xyz_ij[1]*xyz_ij[1]+xyz_ij[2]*xyz_ij[2];
-          dot_ik = xyz_ik[0]*xyz_ik[0]+xyz_ik[1]*xyz_ik[1]+xyz_ik[2]*xyz_ik[2];
-          dr_ij_dj_x = xyz_ij[m]* 1/sqrt(dot_ij);
+          dr_ij_dj_x = xyz_ij[m] * 1.0/sqrt(dot_ij); 
           dr_ij_dk_x = 0.0;
           dr_ik_dj_x = 0.0;
-          dr_ik_dk_x = xyz_ik[m]* 1/sqrt(dot_ik);
-
-          denominator1 = 1/(pow(dot_ij, 3/2) * sqrt(dot_ik));
-          denominator2 = 1/(pow(dot_ik, 3/2) * sqrt(dot_ij));
+          dr_ik_dk_x = xyz_ik[m] * 1.0/sqrt(dot_ik);
 
           mp = id_mapper[m+1];
           mpp = id_mapper[m+2];
@@ -174,20 +180,22 @@ void Pairnb3nTest::compute(int eflag, int vflag)
           partial_dot_jk = xyz_ij[mp]*xyz_ik[mp] + xyz_ij[mpp]*xyz_ik[mpp];
           da_djx = (xyz_ik[m]*(xyz_ij[mp]*xyz_ij[mp] + xyz_ij[mpp]*xyz_ij[mpp]) - xyz_ij[m]*partial_dot_jk) * denominator1;
           da_dkx = (xyz_ij[m]*(xyz_ik[mp]*xyz_ik[mp] + xyz_ik[mpp]*xyz_ik[mpp]) - xyz_ik[m]*partial_dot_jk) * denominator2;
-
-          f[j][m] += -(dE_dr_ij*dr_ij_dj_x + dE_dr_ik*dr_ik_dj_x + dE_da*da_djx);
-          f[k][m] += -(dE_dr_ij*dr_ij_dk_x + dE_dr_ik*dr_ik_dk_x + dE_da*da_dkx);
-          f[i][m] -= (f[j][m] + f[k][m]);
+          
+          double tmp_fjm = -(dE_dr_ij*dr_ij_dj_x + dE_dr_ik*dr_ik_dj_x + dE_da*da_djx);
+          double tmp_fkm = -(dE_dr_ij*dr_ij_dk_x + dE_dr_ik*dr_ik_dk_x + dE_da*da_dkx);
+          f[j][m] += tmp_fjm;
+          f[k][m] += tmp_fkm;
+          f[i][m] -= (tmp_fjm + tmp_fkm);
         }
-
-      fj[0] = f[j][0];
-      fj[1] = f[j][1];
-      fj[2] = f[j][2];
-
-      fk[0] = f[k][0];
-      fk[1] = f[k][1];
-      fk[2] = f[k][2];
-      double ecoul = 0.0; // why is ecoul AND evdW here but not in evtally4?
+        fj[0] = f[j][0];
+        fj[1] = f[j][1];
+        fj[2] = f[j][2];
+  
+        fk[0] = f[k][0];
+        fk[1] = f[k][1];
+        fk[2] = f[k][2];
+        
+      double ecoul = 0.0; 
       if (evflag) ev_tally3(i, j, k, E, ecoul, fj, fk, xyz_ij, xyz_ik);
       }
     }
@@ -230,7 +238,6 @@ void Pairnb3nTest::settings(int narg, char **arg)
 
 void Pairnb3nTest::coeff(int narg, char **arg)
 {
-  // printf("%d\n",narg);
   if (narg != 5) {
     error->all(FLERR,"Incorrect args for pair coefficients, need 5 (2 ids, 1 center_id, 2 pars)");
   }
@@ -268,11 +275,6 @@ void Pairnb3nTest::coeff(int narg, char **arg)
 
 void Pairnb3nTest::init_style()
 {
-//   // molecular system required to use special list to find H atoms
-//   // tags required to use special list
-//   // pair newton on required since are looping over D atoms
-//   //   and computing forces on A,H which may be on different procs
-
    if (atom->molecular == Atom::ATOMIC)
      error->all(FLERR,"Pair style MOFFF/nb3b requires molecular system");
    if (atom->tag_enable == 0)
