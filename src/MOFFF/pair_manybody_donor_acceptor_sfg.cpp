@@ -130,7 +130,7 @@ void PairManybodyDonorAcceptorSFG::compute(int eflag, int vflag)
     jnum = numneigh[i];
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
-      factor_hb = special_lj[sbmask(j)];
+      // factor_hb = special_lj[sbmask(j)];
       j &= NEIGHMASK;
 
       jtype = type[j];
