@@ -127,7 +127,7 @@ DumpMFP5::DumpMFP5(LAMMPS *lmp, int narg, char **arg) : Dump(lmp, narg, arg)
         error->all(FLERR, "Invalid number of arguments in dump mfp5");
       }
       if (stage_name==nullptr) {
-        stage_name = new char[strlen(arg[iarg])+1];
+        stage_name = new char[strlen(arg[iarg+1])+1]; // RS 7.5.25 this was a bug I think ... not sure if the second +1 is needed
         strcpy(stage_name, arg[iarg+1]);
       } else {
         error->all(FLERR, "Illegal dump mfp5 command: stage name argument repeated");
@@ -207,16 +207,16 @@ DumpMFP5::DumpMFP5(LAMMPS *lmp, int narg, char **arg) : Dump(lmp, narg, arg)
     printf("DEBUG DEBUG size of nmaxbonds %d\n", rxbfix->nbondmax);
   }
 
-  //printf ("size_one is %d\n", size_one);
+//  printf ("size_one is %d\n", size_one);
 
-  //printf("every_xyz %d\n", every_xyz);
-  //printf("every_image %d\n", every_image);
-  //printf("every_vel %d\n", every_vel);
-  //printf("every_cell %d\n", every_cell);
-  //printf("every_forces %d\n", every_forces);
-  //printf("every_charges %d\n", every_charges);
-  //printf("every_restart %d\n", every_restart);
-  //printf("every_thermo %d\n", every_thermo);
+//  printf("every_xyz %d\n", every_xyz);
+//  printf("every_image %d\n", every_image);
+//  printf("every_vel %d\n", every_vel);
+//  printf("every_cell %d\n", every_cell);
+//  printf("every_forces %d\n", every_forces);
+//  printf("every_charges %d\n", every_charges);
+//  printf("every_restart %d\n", every_restart);
+//  printf("every_thermo %d\n", every_thermo);
 
 
   // allocate global array for atom coords
