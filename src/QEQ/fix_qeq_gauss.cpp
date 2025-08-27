@@ -291,7 +291,8 @@ void FixQEqGauss::reallocate_storage()
 
 void FixQEqGauss::allocate_matrix()
 {
-  int i,ii,m;
+  int i,ii;
+  bigint m;
 
   int mincap;
   double safezone;
@@ -308,7 +309,10 @@ void FixQEqGauss::allocate_matrix()
     i = ilist[ii];
     m += numneigh[i];
   }
-  m_cap = MAX((int)(m * safezone), mincap * MIN_NBRS);
+  auto m_cap_big = (bigint)MAX(m * safezone, mincap * MIN_NBRS);
+  if (m_cap_big > MAXSMALLINT)
+    error->one(FLERR, "Too many neighbors in fix {}",style);
+  m_cap = m_cap_big;
 
   H.n = n_cap;
   H.m = m_cap;
@@ -356,13 +360,13 @@ void FixQEqGauss::init()
   MPI_Allreduce(&qsum_local,&qsum,1,MPI_DOUBLE,MPI_SUM,world);
 
   if ((comm->me == 0) && (fabs(qsum) > QSUMSMALL))
-    error->warning(FLERR,"Fix {} group is not charge neutral, net charge = {:.8}", style, qsum);
+    error->warning(FLERR, "Fix {} group is not charge neutral, net charge = {:.8}" + utils::errorurl(29), style, qsum);
 
   // get pointer to fix efield if present. there may be at most one instance of fix efield in use.
 
   efield = nullptr;
   auto fixes = modify->get_fix_by_style("^efield");
-  if (fixes.size() == 1) efield = dynamic_cast<FixEfield *>( fixes.front());
+  if (fixes.size() == 1) efield = dynamic_cast<FixEfield *>(fixes.front());
   else if (fixes.size() > 1)
     error->all(FLERR, "There may be only one fix efield instance used with fix {}", style);
 
@@ -371,14 +375,20 @@ void FixQEqGauss::init()
     efield->init();
     if (strcmp(update->unit_style,"real") != 0)
       error->all(FLERR,"Must use unit_style real with fix {} and external fields", style);
-    if (efield->varflag != FixEfield::CONSTANT)
-      error->all(FLERR,"Cannot (yet) use fix {} with variable efield", style);
 
-    if (((fabs(efield->ex) > SMALL) && domain->xperiodic) ||
-         ((fabs(efield->ey) > SMALL) && domain->yperiodic) ||
-         ((fabs(efield->ez) > SMALL) && domain->zperiodic))
-      error->all(FLERR,"Must not have electric field component in direction of periodic "
-                       "boundary when using charge equilibration with ReaxFF.");
+    if (efield->varflag == FixEfield::ATOM && efield->pstyle != FixEfield::ATOM)
+      error->all(FLERR,"Atom-style external electric field requires atom-style "
+                 "potential variable when used with fix {}", style);
+    // if (((efield->xstyle != FixEfield::CONSTANT) && domain->xperiodic) ||
+    //      ((efield->ystyle != FixEfield::CONSTANT) && domain->yperiodic) ||
+    //      ((efield->zstyle != FixEfield::CONSTANT) && domain->zperiodic))
+    //   error->all(FLERR, Error::NOLASTLINE, "Must not have electric field component in direction of periodic "
+    //                    "boundary when using charge equilibration with ReaxFF.");
+    // if (((fabs(efield->ex) > SMALL) && domain->xperiodic) ||
+    //      ((fabs(efield->ey) > SMALL) && domain->yperiodic) ||
+    //      ((fabs(efield->ez) > SMALL) && domain->zperiodic))
+    //   error->all(FLERR, Error::NOLASTLINE, "Must not have electric field component in direction of periodic "
+    //                    "boundary when using charge equilibration with ReaxFF.");
   }
 
   // we need a half neighbor list w/ Newton off
@@ -387,7 +397,7 @@ void FixQEqGauss::init()
   neighbor->add_request(this, NeighConst::REQ_NEWTON_OFF);
 
   if (utils::strmatch(update->integrate_style,"^respa"))
-    nlevels_respa = (dynamic_cast<Respa *>( update->integrate))->nlevels;
+    nlevels_respa = (dynamic_cast<Respa *>(update->integrate))->nlevels;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -575,8 +585,6 @@ void FixQEqGauss::compute_H()
         r_sqr = SQR(dx) + SQR(dy) + SQR(dz);
 
         flag = 0;
-        // DEBUG BABAK
-        //printf("DEBUG i: %1d, j: %1d, r_sqr: %10.5f\n",i, j, r_sqr);
         if (r_sqr <= cutoff_sq) {
           if (j < atom->nlocal) flag = 1;
           else if (tag[i] < tag[j]) flag = 1;
@@ -592,7 +600,7 @@ void FixQEqGauss::compute_H()
 
         if (flag) {
           H.jlist[m_fill] = j;
-          H.val[m_fill] =  calculate_H_dsf(zei, zej, sqrt(r_sqr));
+          H.val[m_fill] = calculate_H_dsf(zei, zej, sqrt(r_sqr));
           m_fill++;
         }
       }
@@ -1041,7 +1049,7 @@ void FixQEqGauss::get_chi_field()
   memset(&chi_field[0],0,atom->nmax*sizeof(double));
   if (!efield) return;
 
-  const auto x = (const double * const *)atom->x;
+  const auto *const x = (const double * const *)atom->x;
   const int *mask = atom->mask;
   const imageint *image = atom->image;
   const int nlocal = atom->nlocal;
@@ -1054,26 +1062,36 @@ void FixQEqGauss::get_chi_field()
 
   // efield energy is in real units of kcal/mol/angstrom, need to convert to eV
 
-  const double factor = -1.0/force->qe2f;
+  const double qe2f = force->qe2f;
+  const double factor = -1.0/qe2f;
 
-  // currently we only support constant efield
+
+  if (efield->varflag != FixEfield::CONSTANT)
+    efield->update_efield_variables();
+
   // atom selection is for the group of fix efield
 
-  if (efield->varflag == FixEfield::CONSTANT) {
-    double unwrap[3];
-    const double fx = efield->ex;
-    const double fy = efield->ey;
-    const double fz = efield->ez;
-    const int efgroupbit = efield->groupbit;
+  double unwrap[3];
+  const double ex = efield->ex;
+  const double ey = efield->ey;
+  const double ez = efield->ez;
+  const int efgroupbit = efield->groupbit;
 
     // charge interactions
     // force = qE, potential energy = F dot x in unwrapped coords
-
+  if (efield->varflag != FixEfield::ATOM) {
     for (int i = 0; i < nlocal; i++) {
       if (mask[i] & efgroupbit) {
         if (region && !region->match(x[i][0],x[i][1],x[i][2])) continue;
         domain->unmap(x[i],image[i],unwrap);
-        chi_field[i] = factor*(fx*unwrap[0] + fy*unwrap[1] + fz*unwrap[2]);
+        chi_field[i] = factor*(ex*unwrap[0] + ey*unwrap[1] + ez*unwrap[2]);
+      }
+    }
+  } else { // must use atom-style potential from FixEfield
+    for (int i = 0; i < nlocal; i++) {
+      if (mask[i] & efgroupbit) {
+        if (region && !region->match(x[i][0],x[i][1],x[i][2])) continue;
+        chi_field[i] = efield->efield[i][3];
       }
     }
   }
