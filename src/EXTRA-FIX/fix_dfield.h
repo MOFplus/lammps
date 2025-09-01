@@ -55,6 +55,8 @@ class FixDfield : public Fix {
  protected:
   double dx,dy,dz; // reduced components of the electric displacement field 
                    // as obtained by d_vector = volume * (cell^-1 <dot> D_vector)
+  double Dx,Dy,Dz; // components of the electric displacement field
+                   // mostly here for access from friend classes
   double OmegaPx, OmegaPy, OmegaPz; // SJC: Components of the
 				    // intinerant polarization. These
 				    // will likely be defined by a

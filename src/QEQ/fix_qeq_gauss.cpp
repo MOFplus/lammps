@@ -20,6 +20,8 @@
 ------------------------------------------------------------------------- */
 
 #include "fix_qeq_gauss.h"
+#include "fix_store_state.h"
+#include "compute_displace_atom.h"
 
 #include "atom.h"
 #include "citeme.h"
@@ -27,6 +29,7 @@
 #include "domain.h"
 #include "error.h"
 #include "fix_efield.h"
+#include "fix_dfield.h"
 #include "force.h"
 #include "group.h"
 #include "math_const.h"
@@ -53,6 +56,10 @@ using namespace MathConst;
 static constexpr double EV_TO_KCAL_PER_MOL = 14.4;
 static constexpr double SMALL = 1.0e-14;
 static constexpr double QSUMSMALL = 0.00001;
+
+static constexpr double epsilon0 = 5.526348e-3;
+//static constexpr double efact = 0.239*96.4853082e0/epsilon0;
+
 
 /* ---------------------------------------------------------------------- */
 
@@ -102,6 +109,7 @@ FixQEqGauss::FixQEqGauss(LAMMPS *lmp, int narg, char **arg) :
   Hdia_inv = nullptr;
   b_s = nullptr;
   chi_field = nullptr;
+  chi_dfield = nullptr;
   b_t = nullptr;
   b_prc = nullptr;
   b_prm = nullptr;
@@ -123,6 +131,10 @@ FixQEqGauss::FixQEqGauss(LAMMPS *lmp, int narg, char **arg) :
   // others
   cutoff_sq = cutoff*cutoff;
   chizj = nullptr;
+
+  x0 = nullptr;
+  H_dfield = nullptr;
+  H_dfield_jarray = nullptr;
 
   // dual CG support
   // Update comm sizes for this fix
@@ -248,6 +260,10 @@ void FixQEqGauss::allocate_storage()
   memory->create(b_prc,nmax,"qeq:b_prc");
   memory->create(b_prm,nmax,"qeq:b_prm");
 
+  memory->create(chi_dfield,nmax,"qeq:chi_field");
+  memory->create(H_dfield,nmax,nmax,"qeq:H_dfield");
+  memory->create(H_dfield_jarray,nmax,nmax,"qeq:H_dfield_jarray");
+
   // dual CG support
   int size = nmax;
   if (dual_enabled) size*= 2;
@@ -271,6 +287,10 @@ void FixQEqGauss::deallocate_storage()
   memory->destroy(b_prc);
   memory->destroy(b_prm);
   memory->destroy(chi_field);
+
+  memory->destroy(chi_dfield);
+  memory->destroy(H_dfield);
+  memory->destroy(H_dfield_jarray);
 
   memory->destroy(p);
   memory->destroy(q);
@@ -362,16 +382,17 @@ void FixQEqGauss::init()
   if ((comm->me == 0) && (fabs(qsum) > QSUMSMALL))
     error->warning(FLERR, "Fix {} group is not charge neutral, net charge = {:.8}" + utils::errorurl(29), style, qsum);
 
-  // get pointer to fix efield if present. there may be at most one instance of fix efield in use.
+  // get pointer to fix efield/dfield if present. there may be at most one instance of fix efield/dfield in use.
 
   efield = nullptr;
-  auto fixes = modify->get_fix_by_style("^efield");
-  if (fixes.size() == 1) efield = dynamic_cast<FixEfield *>(fixes.front());
-  else if (fixes.size() > 1)
-    error->all(FLERR, "There may be only one fix efield instance used with fix {}", style);
+  dfield = nullptr;
+  auto fixes_e = modify->get_fix_by_style("^efield");
+  auto fixes_d = modify->get_fix_by_style("^dfield");
+  if (fixes_e.size() + fixes_d.size() > 1)
+    error->all(FLERR, "There may be only one fix efield/dfield instance used with fix {}", style);
 
-  // ensure that fix efield is properly initialized before accessing its data and check some settings
-  if (efield) {
+  else if (fixes_e.size() == 1) {
+    efield = dynamic_cast<FixEfield *>(fixes_e.front());
     efield->init();
     if (strcmp(update->unit_style,"real") != 0)
       error->all(FLERR,"Must use unit_style real with fix {} and external fields", style);
@@ -389,6 +410,21 @@ void FixQEqGauss::init()
     //      ((fabs(efield->ez) > SMALL) && domain->zperiodic))
     //   error->all(FLERR, Error::NOLASTLINE, "Must not have electric field component in direction of periodic "
     //                    "boundary when using charge equilibration with ReaxFF.");
+  }
+
+  else if (fixes_d.size() == 1) {
+    dfield = dynamic_cast<FixDfield *>(fixes_d.front());
+    dfield->init();
+    if (strcmp(update->unit_style,"real") != 0)
+      error->all(FLERR,"Must use unit_style real with fix {} and displacement fields", style);
+    if (dfield->varflag != FixEfield::CONSTANT)
+      error->all(FLERR,"Cannot (yet) use fix {} with variable dfield", style);
+    //BFJ: a hacky way to get the atom coordinates used to compute the itinerant polarization
+    //     externally provided to fix_dfield, initconfig and displ are expected to exist
+    //     TBH I don't really understand why we can't simply use ux, uy and uz...
+    store = dynamic_cast<FixStoreState *>(modify->get_fix_by_id("initconfig"));
+    displace = dynamic_cast<ComputeDisplaceAtom *>(modify->get_compute_by_id("displ"));
+    x0 = store->array_atom;
   }
 
   // we need a half neighbor list w/ Newton off
@@ -454,13 +490,21 @@ void FixQEqGauss::min_setup_pre_force(int vflag)
 void FixQEqGauss::init_storage()
 {
   if (efield) get_chi_field();
+  else if (dfield) {
+    displace->compute_peratom();
+    get_chi_dfield();
+    compute_H_dfield();
+  }
 
   for (int ii = 0; ii < nn; ii++) {
     int i = ilist[ii];
     if (atom->mask[i] & groupbit) {
-      Hdia_inv[i] = 1. / eta[atom->type[i]];
+      if (dfield) Hdia_inv[i] = 1. / (eta[atom->type[i]] + calculate_H_dfield(i,i));
+      else Hdia_inv[i] = 1. / eta[atom->type[i]];
+      //Hdia_inv[i] = 1. / eta[atom->type[i]];
       b_s[i] = -chi[atom->type[i]];
       if (efield) b_s[i] -= chi_field[i];
+      else if (dfield) b_s[i] -= chi_dfield[i];
       b_t[i] = -1.0;
       b_prc[i] = 0;
       b_prm[i] = 0;
@@ -490,6 +534,11 @@ void FixQEqGauss::pre_force(int /*vflag*/)
     reallocate_matrix();
 
   if (efield) get_chi_field();
+  else if (dfield) {
+    displace->compute_peratom();
+    get_chi_dfield();
+    compute_H_dfield();
+  }
 
   init_matvec();
 
@@ -528,9 +577,11 @@ void FixQEqGauss::init_matvec()
     if (atom->mask[i] & groupbit) {
 
       /* init pre-conditioner for H and init solution vectors */
-      Hdia_inv[i] = 1. / eta[atom->type[i]];
+      if (dfield) Hdia_inv[i] = 1. / (eta[atom->type[i]] + calculate_H_dfield(i,i));
+      else Hdia_inv[i] = 1. / eta[atom->type[i]];
       b_s[i]      = -chi[atom->type[i]];
       if (efield) b_s[i] -= chi_field[i];
+      else if (dfield) b_s[i] -= chi_dfield[i];
       b_t[i]      = -1.0;
 
       /* quadratic extrapolation for s & t from previous solutions */
@@ -670,14 +721,30 @@ double FixQEqGauss::calculate_H_dsf(double zei, double zej, double r)
   etmp1 = erfrsiginv*rinv-erfrcutsiginv*rcutinv;
   etmp2 = erfrcutsiginv*rcutinv*rcutinv-preexp*expterm*rcutinv;
   etmp3 = etmp1+etmp2*(r-rcut);
-  // DEBUG BABAK
-  //printf("DEBUG sigi: %10.5f, sigj: %10.5f, r: %10.5f, etmp: %10.5f, Jij: %10.5f\n", sigi, sigj, r, etmp3, qqrd2e*etmp3);
   
   return qqrd2e*etmp3;
 }
 
 /* ---------------------------------------------------------------------- */
 
+double FixQEqGauss::calculate_H_dfield(int i, int j)
+{
+  double efact = (force->qqrd2e)*MY_4PI;
+  double volume = domain->xprd * domain->yprd * domain->zprd;
+  double* dxi = displace->array_atom[i];
+  double* dxj = displace->array_atom[j];
+  double* x0i = x0[i];
+  double* x0j = x0[j];
+  double etmp = 0.0;
+  etmp += (dxi[0]+x0i[0])*(dxj[0]+x0j[0]);
+  etmp += (dxi[1]+x0i[1])*(dxj[1]+x0j[1]);
+  etmp += (dxi[2]+x0i[2])*(dxj[2]+x0j[2]);
+  etmp /= volume;
+  etmp *= efact;
+  return etmp;
+}
+
+/* ---------------------------------------------------------------------- */
 int FixQEqGauss::CG(double *b, double *x)
 {
   int  i, j;
@@ -744,12 +811,13 @@ void FixQEqGauss::sparse_matvec(sparse_matrix *A, double *x, double *b)
   for (ii = 0; ii < nn; ++ii) {
     i = ilist[ii];
     if (atom->mask[i] & groupbit)
-      b[i] = eta[atom->type[i]] * x[i];
+    b[i] = eta[atom->type[i]] * x[i];
+    //b[i] = 1.0/Hdia_inv[i] * x[i];
   }
 
   int nall = atom->nlocal + atom->nghost;
   for (i = atom->nlocal; i < nall; ++i)
-      b[i] = 0;
+  b[i] = 0;
 
   for (ii = 0; ii < nn; ++ii) {
     i = ilist[ii];
@@ -758,6 +826,19 @@ void FixQEqGauss::sparse_matvec(sparse_matrix *A, double *x, double *b)
         j = A->jlist[itr_j];
         b[i] += A->val[itr_j] * x[j];
         b[j] += A->val[itr_j] * x[i];
+      }
+    }
+  }
+  if (dfield){
+    int jj;
+    const int nlocal = atom->nlocal;
+    for (ii = 0; ii < nlocal; ++ii) {
+      i = ilist[ii];
+      if (atom->mask[i] & groupbit){
+        for (jj = 0; jj < atom->natoms; ++jj){
+          j = H_dfield_jarray[i][jj];
+          b[i] += H_dfield[i][j] * x[j];
+        }
       }
     }
   }
@@ -1060,12 +1141,6 @@ void FixQEqGauss::get_chi_field()
   Region *region = efield->region;
   if (region) region->prematch();
 
-  // efield energy is in real units of kcal/mol/angstrom, need to convert to eV
-
-  const double qe2f = force->qe2f;
-  const double factor = -1.0/qe2f;
-
-
   if (efield->varflag != FixEfield::CONSTANT)
     efield->update_efield_variables();
 
@@ -1084,7 +1159,7 @@ void FixQEqGauss::get_chi_field()
       if (mask[i] & efgroupbit) {
         if (region && !region->match(x[i][0],x[i][1],x[i][2])) continue;
         domain->unmap(x[i],image[i],unwrap);
-        chi_field[i] = factor*(ex*unwrap[0] + ey*unwrap[1] + ez*unwrap[2]);
+        chi_field[i] = -(ex*unwrap[0] + ey*unwrap[1] + ez*unwrap[2]);
       }
     }
   } else { // must use atom-style potential from FixEfield
@@ -1092,6 +1167,100 @@ void FixQEqGauss::get_chi_field()
       if (mask[i] & efgroupbit) {
         if (region && !region->match(x[i][0],x[i][1],x[i][2])) continue;
         chi_field[i] = efield->efield[i][3];
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixQEqGauss::get_chi_dfield()
+{
+  memset(&chi_dfield[0],0,atom->nmax*sizeof(double));
+  if (!dfield) return;
+  const auto *const x = (const double * const *)atom->x;
+  const int *mask = atom->mask;
+  const imageint *image = atom->image;
+  const int nlocal = atom->nlocal;
+  double efact = (force->qqrd2e)*MY_4PI;
+
+
+  // update displacement field region if necessary
+
+  Region *region = dfield->region;
+  if (region) region->prematch();
+
+  // currently we only support constant dfield
+  // atom selection is for the group of fix dfield
+
+  if (dfield->varflag == FixEfield::CONSTANT) {
+    const double dfx = dfield->Dx;
+    const double dfy = dfield->Dy;
+    const double dfz = dfield->Dz;
+    const int dfgroupbit = dfield->groupbit;
+    double** dx = displace->array_atom;
+    //double unwrap[3];
+    for (int i = 0; i < nlocal; i++) {
+      if (mask[i] & dfgroupbit) {
+        if (region && !region->match(x[i][0],x[i][1],x[i][2])) continue;
+        //domain->unmap(x[i],image[i],unwrap);
+        //chi_dfield[i] = efact*(fx*unwrap[0] + fy*unwrap[1] + fz*unwrap[2]);
+        chi_dfield[i] = -efact*(dfx*(dx[i][0]+x0[i][0]) + dfy*(dx[i][1]+x0[i][1]) + dfz*(dx[i][2]+x0[i][2]));
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixQEqGauss::compute_H_dfield()
+{
+  int i, j, ii, jj, tag_i, tag_j;
+  const int nlocal = atom->nlocal;
+  const int nghost = atom->nghost;
+  double efact = (force->qqrd2e)*MY_4PI;
+  double volume = domain->xprd * domain->yprd * domain->zprd;
+
+  double **unwrap;
+  memory->create(unwrap,atom->nmax,3,"domain:unwrap");
+
+  double** dx = displace->array_atom;
+  const int *mask = atom->mask;
+  const int dfgroupbit = dfield->groupbit;
+
+  for (int i = 0; i < nlocal; i++) {
+    if (mask[i] & dfgroupbit) {
+      unwrap[i][0] = dx[i][0]+x0[i][0];
+      unwrap[i][1] = dx[i][1]+x0[i][1];
+      unwrap[i][2] = dx[i][2]+x0[i][2];
+    }
+  }
+
+  comm->forward_comm_array(3,unwrap);
+  int counter, counter_last;
+  double etmp;
+
+  for (ii = 0; ii < nlocal; ++ii) {
+    i = ilist[ii];
+    if (atom->mask[i] & groupbit){
+      counter = 0;
+      while (counter < atom->natoms){
+        counter_last = counter;
+        for (j = 0; j < atom->nlocal+atom->nghost; ++j){
+          if (atom->tag[j] == counter+1){
+            etmp = 0.0;
+            etmp += (unwrap[i][0])*(unwrap[j][0]);
+            etmp += (unwrap[i][1])*(unwrap[j][1]);
+            etmp += (unwrap[i][2])*(unwrap[j][2]);
+            etmp /= volume;
+            etmp *= efact;
+            H_dfield[i][j] = etmp;
+            H_dfield_jarray[i][counter] = j;
+            counter++;
+            break;
+          }
+        }
+        if (counter_last==counter) error->all(FLERR,"NEIGHBOR LIST TOO SMALL");
       }
     }
   }

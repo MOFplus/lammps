@@ -109,6 +109,21 @@ class FixQEqGauss : public Fix {
   double *p, *q, *r, *d;
   int imax, maxwarn;
 
+  // constant Dfield
+  class FixDfield *dfield;
+  double *chi_dfield;
+  class FixStoreState *store;
+  class ComputeDisplaceAtom *displace;
+  double **x0;
+  // this is dense, this is horrible
+  double **H_dfield;
+  int **H_dfield_jarray;
+  // actually it turns somewhat sparse when parallel, keep this for later
+  //sparse_matrix H;
+  virtual void compute_H_dfield();
+  double calculate_H_dfield(int, int);
+  virtual void get_chi_dfield();
+
   char *pertype_option;    // argument to determine how per-type info is obtained
   virtual void pertype_parameters(char *);
   virtual void allocate_storage();

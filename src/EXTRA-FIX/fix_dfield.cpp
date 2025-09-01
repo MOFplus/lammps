@@ -31,6 +31,7 @@
 #include "error.h"
 #include "force.h"
 #include "input.h"
+#include "math_const.h"
 #include "memory.h"
 #include "modify.h"
 #include "region.h"
@@ -40,6 +41,7 @@
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
+using namespace MathConst;
 
 enum{NONE,CONSTANT,EQUAL,ATOM};
 
@@ -243,6 +245,21 @@ void FixDfield::init()
   c_OmegaPy = modify->compute[iOmegaPy];
   c_OmegaPz = modify->compute[iOmegaPz];
 
+  // BFJ: I need this here as well
+  double volume = domain->xprd * domain->yprd * domain->zprd;
+  if (!domain->triclinic){
+    Dx=dx*domain->xprd;
+    Dy=dy*domain->yprd;
+    Dz=dz*domain->zprd;
+  } else {
+    Dx=dx*domain->h[0];
+    Dy=dx*domain->h[3]+dy*domain->h[1];
+    Dz=dx*domain->h[4]+dy*domain->h[5]+dz*domain->h[3];
+  }
+  Dx = Dx/volume;
+  Dy = Dy/volume;
+  Dz = Dz/volume;
+
   // set index and check validity of region
 
   // SJC: I think all the things below regarding region and energy
@@ -361,7 +378,6 @@ void FixDfield::post_force(int vflag)
   ;
 
   double pol[3];
-  double D[3];
   double DmP[3];
   DmP[0] = DmP[1] = DmP[2] = 0.0;
   double volume = domain->xprd * domain->yprd * domain->zprd;
@@ -373,17 +389,17 @@ void FixDfield::post_force(int vflag)
   // ie compute D out of d and the cellparams
 
   if (!domain->triclinic){
-    D[0]=dx*domain->xprd;
-    D[1]=dy*domain->yprd;
-    D[2]=dz*domain->zprd;
+    Dx=dx*domain->xprd;
+    Dy=dy*domain->yprd;
+    Dz=dz*domain->zprd;
   } else {
-    D[0]=dx*domain->h[0];
-    D[1]=dx*domain->h[3]+dy*domain->h[1];
-    D[2]=dx*domain->h[4]+dy*domain->h[5]+dz*domain->h[3];
+    Dx=dx*domain->h[0];
+    Dy=dx*domain->h[3]+dy*domain->h[1];
+    Dz=dx*domain->h[4]+dy*domain->h[5]+dz*domain->h[3];
   }
-  D[0] = D[0]/volume;
-  D[1] = D[1]/volume;
-  D[2] = D[2]/volume;
+  Dx = Dx/volume;
+  Dy = Dy/volume;
+  Dz = Dz/volume;
 
 
   if (varflag == CONSTANT) {
@@ -413,9 +429,9 @@ void FixDfield::post_force(int vflag)
 
 
     // calculate DmP
-    if(dxflag){DmP[0] += D[0]-pol[0];}
-    if(dyflag){DmP[1] += D[1]-pol[1];}
-    if(dzflag){DmP[2] += D[2]-pol[2];}
+    if(dxflag){DmP[0] += Dx-pol[0];}
+    if(dyflag){DmP[1] += Dy-pol[1];}
+    if(dzflag){DmP[2] += Dz-pol[2];}
 
 
     // now we can calculate the energy, works only for unit system real
@@ -423,8 +439,11 @@ void FixDfield::post_force(int vflag)
     // efact is faraday const *0.001/eps0
     // then we have units of KJ/mol
     // to go to kcal/mol it is multiplied by 0.239
-    double epsilon0 = 5.526348e-3;
-    double efact = 0.239*96.4853082e0/epsilon0;
+    // double epsilon0 = 5.526348e-3;
+    // double efact = 0.239*96.4853082e0/epsilon0;
+
+    //BFJ: this should be more consistent
+    double efact = (force->qqrd2e)*MY_4PI;
 
     fsum[0] = fsum[0] + volume/2.0e0*efact*(DmP[0]*DmP[0]);
     fsum[0] = fsum[0] + volume/2.0e0*efact*(DmP[1]*DmP[1]);
@@ -442,8 +461,6 @@ void FixDfield::post_force(int vflag)
           f[i][0] += fx;
           f[i][1] += fy;
           f[i][2] += fz;
-
-          domain->unmap(x[i],image[i],unwrap);
 
           fsum[1] += fx;
           fsum[2] += fy;
