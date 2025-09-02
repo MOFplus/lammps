@@ -110,6 +110,8 @@ void PairBuck6dACKS2GaussDSF::compute(int eflag, int vflag)
   double *u = acks2fix->get_u();
   double *Xij = acks2fix->get_Xij();
   double *X_diag = acks2fix->get_X_diag();
+  double **special_local = acks2fix->get_special_local();
+  int intra_flag;
 
   inum = list->inum;
   ilist = list->ilist;
@@ -189,7 +191,14 @@ void PairBuck6dACKS2GaussDSF::compute(int eflag, int vflag)
         } else forcecoul = 0.0;
 
         if (rsq < cut_coulsq) {
+          intra_flag = 0;
+          // BFJ: not sure if this is enough
           if (moli == molj) {
+            if (special_local[j][0] < atom->nlocal) {
+              intra_flag = 1;
+            }
+          }
+          if (intra_flag) {
             Xij_1 = Xij[itype*(ntypes+1)*4+jtype*4+0];
             Xij_2 = Xij[itype*(ntypes+1)*4+jtype*4+1];
             eresp = Xij_1+Xij_2*r;

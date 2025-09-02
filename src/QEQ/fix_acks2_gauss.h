@@ -38,6 +38,7 @@ class FixACKS2Gauss : public FixQEqGauss {
   double *get_u() { return u; }
   double *get_Xij() { return Xij; }
   double *get_X_diag() { return X_diag; }
+  double **get_special_local() { return special_local; }
 
  protected:
   int NN, last_rows_rank, last_rows_flag;
@@ -48,9 +49,13 @@ class FixACKS2Gauss : public FixQEqGauss {
   double *Xdia_inv;
   double *X_diag;
   double *u;
+  double **special_local;
 
   //BiCGStab storage
   double *g, *q_hat, *r_hat, *y, *z;
+
+  //Constant Dfield
+  class ComputeDisplaceAtom *displace;
 
   void pertype_parameters(char *) override;
   void allocate_storage() override;

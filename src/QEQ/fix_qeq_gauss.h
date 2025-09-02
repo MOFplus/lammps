@@ -120,6 +120,7 @@ class FixQEqGauss : public Fix {
   int **H_dfield_jarray;
   // actually it turns somewhat sparse when parallel, keep this for later
   //sparse_matrix H;
+  virtual void update_displacements();
   virtual void compute_H_dfield();
   double calculate_H_dfield(int, int);
   virtual void get_chi_dfield();

@@ -13,8 +13,8 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
-   Contributing author: Babak Farhadi Jahromi, CMC group,
-   Ruhr-Universitaet Bochum 
+   Contributing author: Babak Farhadi Jahromi, CMC Group,
+   Ruhr-Universitaet Bochum
 
    Based on fix qeq/reaxff by Hasan Metin Aktulga and fix qeq by Ray Shan
 ------------------------------------------------------------------------- */
@@ -415,6 +415,8 @@ void FixQEqGauss::init()
   else if (fixes_d.size() == 1) {
     dfield = dynamic_cast<FixDfield *>(fixes_d.front());
     dfield->init();
+    store = nullptr;
+    displace = nullptr;
     if (strcmp(update->unit_style,"real") != 0)
       error->all(FLERR,"Must use unit_style real with fix {} and displacement fields", style);
     if (dfield->varflag != FixEfield::CONSTANT)
@@ -491,7 +493,7 @@ void FixQEqGauss::init_storage()
 {
   if (efield) get_chi_field();
   else if (dfield) {
-    displace->compute_peratom();
+    update_displacements();
     get_chi_dfield();
     compute_H_dfield();
   }
@@ -535,7 +537,7 @@ void FixQEqGauss::pre_force(int /*vflag*/)
 
   if (efield) get_chi_field();
   else if (dfield) {
-    displace->compute_peratom();
+    update_displacements();
     get_chi_dfield();
     compute_H_dfield();
   }
@@ -1264,4 +1266,11 @@ void FixQEqGauss::compute_H_dfield()
       }
     }
   }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixQEqGauss::update_displacements()
+{
+  displace->compute_peratom();
 }
