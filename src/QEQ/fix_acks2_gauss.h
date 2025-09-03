@@ -38,7 +38,8 @@ class FixACKS2Gauss : public FixQEqGauss {
   double *get_u() { return u; }
   double *get_Xij() { return Xij; }
   double *get_X_diag() { return X_diag; }
-  double **get_special_local() { return special_local; }
+  int **get_special_local() { return special_local; }
+  int *get_nspecial_local() { return nspecial_local; }
 
  protected:
   int NN, last_rows_rank, last_rows_flag;
@@ -49,7 +50,8 @@ class FixACKS2Gauss : public FixQEqGauss {
   double *Xdia_inv;
   double *X_diag;
   double *u;
-  double **special_local;
+  int **special_local;
+  int *nspecial_local;
 
   //BiCGStab storage
   double *g, *q_hat, *r_hat, *y, *z;

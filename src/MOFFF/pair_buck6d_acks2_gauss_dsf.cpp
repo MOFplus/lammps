@@ -110,7 +110,8 @@ void PairBuck6dACKS2GaussDSF::compute(int eflag, int vflag)
   double *u = acks2fix->get_u();
   double *Xij = acks2fix->get_Xij();
   double *X_diag = acks2fix->get_X_diag();
-  double **special_local = acks2fix->get_special_local();
+  int **special_local = acks2fix->get_special_local();
+  int *nspecial_local = acks2fix->get_nspecial_local();
   int intra_flag;
 
   inum = list->inum;
@@ -192,10 +193,37 @@ void PairBuck6dACKS2GaussDSF::compute(int eflag, int vflag)
 
         if (rsq < cut_coulsq) {
           intra_flag = 0;
-          // BFJ: not sure if this is enough
+          // BFJ: This is robust
+          // and horrible
+          // and it limits bonded parametrization to 1-2, 1-3 and 1-4 pairs
+          // but at least it's robust
           if (moli == molj) {
-            if (special_local[j][0] < atom->nlocal) {
-              intra_flag = 1;
+            for (int k = 0 ; k < nspecial_local[j]; k++) {
+              int atom_jk = special_local[j][k];
+              if (atom_jk == i) {
+                intra_flag = 1;
+                break;
+              }
+              for (int l = 0 ; l < nspecial_local[i]; l++) {
+                if (special_local[i][l] == atom_jk) {
+                  intra_flag = 1;
+                  break;
+                }
+              }
+              for (int l = 0 ; l < nspecial_local[atom_jk]; l++) {
+                int atom_kl = special_local[atom_jk][l];
+                if (atom_kl == j) continue;
+                if (atom_kl == i) {
+                  intra_flag = 1;
+                  break;
+                }
+                for (int m = 0 ; m < nspecial_local[i]; m++) {
+                  if (special_local[i][m] == atom_kl) {
+                    intra_flag = 1;
+                    break;
+                  }
+                }
+              }
             }
           }
           if (intra_flag) {

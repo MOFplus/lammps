@@ -63,6 +63,7 @@ FixACKS2Gauss::FixACKS2Gauss(LAMMPS *lmp, int narg, char **arg) :
   u = nullptr;
 
   special_local = nullptr;
+  nspecial_local = nullptr;
 
   // Update comm sizes for this fix
   comm_forward = comm_reverse = 2;
@@ -215,7 +216,8 @@ void FixACKS2Gauss::allocate_storage()
   memory->create(z,size,"acks2:z");
   memory->create(u,size,"acks2:u");
 
-  memory->create(special_local, atom->nlocal + atom->nghost, 2, "acks2:special_local");
+  memory->create(special_local, atom->nlocal + atom->nghost, 4, "acks2:special_local");
+  memory->create(nspecial_local, atom->nlocal + atom->nghost, "acks2:nspecial_local");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -234,6 +236,7 @@ void FixACKS2Gauss::deallocate_storage()
   memory->destroy(z);
   memory->destroy(u);
   memory->destroy(special_local);
+  memory->destroy(nspecial_local);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -399,25 +402,22 @@ void FixACKS2Gauss::compute_X()
   
   // BFJ: stolen from pair_mesocnt
   int **nspecial = atom->nspecial;
-  tagint **special = atom->special;
-
   pack_flag = 4;
   comm->forward_comm(this);
-
+  // BFJ: i get segfaults if I don't do these separately
+  tagint **special = atom->special;
+  pack_flag = 5;
+  comm->forward_comm(this);
+  
   // create version of atom->special with local ids and correct images
 
-  int atom1, atom2;
-  
-
+  int atomj;
   for (int i = 0; i < atom->nlocal + atom->nghost; i++) {
-    atom1 = atom->map(special[i][0]);
-    special_local[i][0] = domain->closest_image(i, atom1);
-    //if (nspecial[i][0] == 1)
-    //  special_local[i][1] = -1;
-    //else {
-    //  atom2 = atom->map(special[i][1]);
-    //  special_local[i][1] = domain->closest_image(i, atom2);
-    //}
+      nspecial_local[i] = nspecial[i][0];
+      for (int j = 0 ; j < nspecial[i][0]; j++) {
+        atomj = atom->map(special[i][j]);
+        special_local[i][j] = domain->closest_image(i, atomj);
+      }
   }
 
   memset(X_diag,0,atom->nmax*sizeof(double));
@@ -462,18 +462,42 @@ void FixACKS2Gauss::compute_X()
         if (flag) {
           X.jlist[m_fill] = j;
           intra_flag = 0;
-          // BFJ: not sure if this is enough
+          // BFJ: This is robust
+          // and horrible
+          // and it limits bonded parametrization to 1-2, 1-3 and 1-4 pairs
+          // but at least it's robust
           if (moli == molj) {
-            if (special_local[j][0] < atom->nlocal) {
-              intra_flag = 1;
+            for (int k = 0 ; k < nspecial_local[j]; k++) {
+              int atom_jk = special_local[j][k];
+              if (atom_jk == i) {
+                intra_flag = 1;
+                break;
+              }
+              for (int l = 0 ; l < nspecial_local[i]; l++) {
+                if (special_local[i][l] == atom_jk) {
+                  intra_flag = 1;
+                  break;
+                }
+              }
+              for (int l = 0 ; l < nspecial_local[atom_jk]; l++) {
+                int atom_kl = special_local[atom_jk][l];
+                if (atom_kl == j) continue;
+                if (atom_kl == i) {
+                  intra_flag = 1;
+                  break;
+                }
+                for (int m = 0 ; m < nspecial_local[i]; m++) {
+                  if (special_local[i][m] == atom_kl) {
+                    intra_flag = 1;
+                    break;
+                  }
+                }
+              }
             }
           }
           if (intra_flag) {
             c1 = Xij[itype*(ntypes+1)*4+jtype*4+0];
             c2 = Xij[itype*(ntypes+1)*4+jtype*4+1];
-            //printf("DEBUG X INTRA %d %d %12.8f %12.8f %12.8f\n", i, j, c1, c2, sqrt(r_sqr));
-            //printf("   BONDED IDs %d %d | %d %d\n", special_local[i][0], special_local[i][1],
-            //  special_local[j][0], special_local[j][1]);
             X_val = calculate_X_bonded(sqrt(r_sqr), c1, c2);
           }
           else {
@@ -739,7 +763,7 @@ int FixACKS2Gauss::pack_forward_comm(int n, int *list, double *buf,
                                   int /*pbc_flag*/, int * /*pbc*/)
 {
   int m = 0;
-  int i, j;
+  int i, j, k;
 
   if (pack_flag == 1) {
     for(int i = 0; i < n; i++) {
@@ -760,14 +784,28 @@ int FixACKS2Gauss::pack_forward_comm(int n, int *list, double *buf,
       buf[m++] = q_hat[NN+j];
     }
   } else if (pack_flag == 4) {
-    for (i = 0; i < n; i++){
+    //for (i = 0; i < n; i++){
+    //  j = list[i];
+    //  buf[m++] = ubuf(atom->nspecial[j][0]).d;
+    //  buf[m++] = ubuf(atom->special[j][0]).d;
+    //  if (atom->nspecial[j][0] == 1) buf[m++] = ubuf(-1).d;
+    //  else buf[m++] = ubuf(atom->special[j][1]).d;
+    //}
+    int **nspecial = atom->nspecial;
+    //tagint **special = atom->special;
+    for (i = 0; i < n; i++) {
       j = list[i];
-      buf[m++] = ubuf(atom->nspecial[j][0]).d;
-      buf[m++] = ubuf(atom->special[j][0]).d;
-      if (atom->nspecial[j][0] == 1)
-      buf[m++] = ubuf(-1).d;
-      else
-      buf[m++] = ubuf(atom->special[j][1]).d;
+      buf[m++] = ubuf(nspecial[j][0]).d;
+      //for (k = 0; k < nspecial[j][0]; k++)
+      //  buf[m++] = ubuf(special[j][k]).d;
+    }
+  } else if (pack_flag == 5) {
+    int **nspecial = atom->nspecial;
+    tagint **special = atom->special;
+    for (i = 0; i < n; i++) {
+      j = list[i];
+      for (k = 0; k < nspecial[j][0]; k++)
+        buf[m++] = ubuf(special[j][k]).d;
     }
   }
   return m;
@@ -777,7 +815,7 @@ int FixACKS2Gauss::pack_forward_comm(int n, int *list, double *buf,
 
 void FixACKS2Gauss::unpack_forward_comm(int n, int first, double *buf)
 {
-  int i, m;
+  int i, m, k;
 
   int last = first + n;
   m = 0;
@@ -798,12 +836,25 @@ void FixACKS2Gauss::unpack_forward_comm(int n, int first, double *buf)
       q_hat[NN+i] = buf[m++];
     }
   } else if (pack_flag == 4) {
-    last = first + n;
+    //for (i = first; i < last; i++) {
+    //  atom->nspecial[i][0] = (int) ubuf(buf[m++]).i;
+    //  atom->special[i][0] = (tagint) ubuf(buf[m++]).i;
+    //  if (atom->nspecial[i][0] > 1) atom->special[i][1] = (tagint) ubuf(buf[m]).i;
+    //  m++;
+    //}
+    int **nspecial = atom->nspecial;
+    //tagint **special = atom->special;
     for (i = first; i < last; i++) {
-    atom->nspecial[i][0] = (int) ubuf(buf[m++]).i;
-    atom->special[i][0] = (tagint) ubuf(buf[m++]).i;
-    if (atom->nspecial[i][0] > 1) atom->special[i][1] = (tagint) ubuf(buf[m]).i;
-    m++;
+      nspecial[i][0] = (int) ubuf(buf[m++]).i;
+      //for (k = 0; k < nspecial[i][0]; k++)
+      //  special[i][k] = (tagint) ubuf(buf[m++]).i;
+    }
+  } else if (pack_flag == 5) {
+    int **nspecial = atom->nspecial;
+    tagint **special = atom->special;
+    for (i = first; i < last; i++) {
+      for (k = 0; k < nspecial[i][0]; k++)
+        special[i][k] = (tagint) ubuf(buf[m++]).i;
     }
   }
 }

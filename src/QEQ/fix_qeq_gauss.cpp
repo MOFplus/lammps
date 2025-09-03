@@ -1224,7 +1224,7 @@ void FixQEqGauss::compute_H_dfield()
   double volume = domain->xprd * domain->yprd * domain->zprd;
 
   double **unwrap;
-  memory->create(unwrap,atom->nmax,3,"domain:unwrap");
+  memory->create(unwrap,atom->nmax,3,"qeq:unwrap");
 
   double** dx = displace->array_atom;
   const int *mask = atom->mask;
