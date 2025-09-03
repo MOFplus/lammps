@@ -216,8 +216,8 @@ void FixACKS2Gauss::allocate_storage()
   memory->create(z,size,"acks2:z");
   memory->create(u,size,"acks2:u");
 
-  memory->create(special_local, atom->nlocal + atom->nghost, 4, "acks2:special_local");
-  memory->create(nspecial_local, atom->nlocal + atom->nghost, "acks2:nspecial_local");
+  memory->create(special_local, nmax, 4, "acks2:special_local");
+  memory->create(nspecial_local, nmax, "acks2:nspecial_local");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -404,13 +404,14 @@ void FixACKS2Gauss::compute_X()
   int **nspecial = atom->nspecial;
   pack_flag = 4;
   comm->forward_comm(this);
-  // BFJ: i get segfaults if I don't do these separately
+  // BFJ: I get segfaults if I don't do these separately
   tagint **special = atom->special;
   pack_flag = 5;
   comm->forward_comm(this);
   
+  memory->grow(special_local, nmax, 4, "acks2:special_local");
+  memory->grow(nspecial_local, nmax, "acks2:nspecial_local");
   // create version of atom->special with local ids and correct images
-
   int atomj;
   for (int i = 0; i < atom->nlocal + atom->nghost; i++) {
       nspecial_local[i] = nspecial[i][0];
@@ -419,7 +420,6 @@ void FixACKS2Gauss::compute_X()
         special_local[i][j] = domain->closest_image(i, atomj);
       }
   }
-
   memset(X_diag,0,atom->nmax*sizeof(double));
 
   // fill in the X matrix
