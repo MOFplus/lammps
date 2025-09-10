@@ -197,6 +197,7 @@ void FixACKS2Gauss::allocate_storage()
   memory->create(Hdia_inv,nmax,"acks2:Hdia_inv");
   memory->create(chi_field,nmax,"acks2:chi_field");
 
+  memory->create(unwrap,atom->nmax,3,"acks2:unwrap");
   memory->create(chi_dfield,nmax,"acks2:chi_dfield");
   memory->create(H_dfield,nmax,nmax,"acks2:H_dfield");
   memory->create(H_dfield_jarray,nmax,nmax,"acks2:H_dfield_jarray");
