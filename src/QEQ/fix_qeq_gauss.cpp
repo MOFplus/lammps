@@ -109,7 +109,6 @@ FixQEqGauss::FixQEqGauss(LAMMPS *lmp, int narg, char **arg) :
   Hdia_inv = nullptr;
   b_s = nullptr;
   chi_field = nullptr;
-  chi_dfield = nullptr;
   b_t = nullptr;
   b_prc = nullptr;
   b_prm = nullptr;
@@ -133,6 +132,8 @@ FixQEqGauss::FixQEqGauss(LAMMPS *lmp, int narg, char **arg) :
   chizj = nullptr;
 
   x0 = nullptr;
+  unwrap = nullptr;
+  chi_dfield = nullptr;
   H_dfield = nullptr;
   H_dfield_jarray = nullptr;
 
@@ -260,6 +261,7 @@ void FixQEqGauss::allocate_storage()
   memory->create(b_prc,nmax,"qeq:b_prc");
   memory->create(b_prm,nmax,"qeq:b_prm");
 
+  memory->create(unwrap,atom->nmax,3,"qeq:unwrap");
   memory->create(chi_dfield,nmax,"qeq:chi_field");
   memory->create(H_dfield,nmax,nmax,"qeq:H_dfield");
   memory->create(H_dfield_jarray,nmax,nmax,"qeq:H_dfield_jarray");
@@ -288,6 +290,7 @@ void FixQEqGauss::deallocate_storage()
   memory->destroy(b_prm);
   memory->destroy(chi_field);
 
+  memory->destroy(unwrap);
   memory->destroy(chi_dfield);
   memory->destroy(H_dfield);
   memory->destroy(H_dfield_jarray);
@@ -1222,9 +1225,6 @@ void FixQEqGauss::compute_H_dfield()
   const int nghost = atom->nghost;
   double efact = (force->qqrd2e)*MY_4PI;
   double volume = domain->xprd * domain->yprd * domain->zprd;
-
-  double **unwrap;
-  memory->create(unwrap,atom->nmax,3,"qeq:unwrap");
 
   double** dx = displace->array_atom;
   const int *mask = atom->mask;

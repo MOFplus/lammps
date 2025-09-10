@@ -115,6 +115,7 @@ class FixQEqGauss : public Fix {
   class FixStoreState *store;
   class ComputeDisplaceAtom *displace;
   double **x0;
+  double **unwrap;
   // this is dense, this is horrible
   double **H_dfield;
   int **H_dfield_jarray;

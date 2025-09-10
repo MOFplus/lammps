@@ -283,7 +283,8 @@ void FixACKS2Gauss::init_storage()
     compute_H_dfield();
   }
 
-  for (int ii = 0; ii < NN; ii++) {
+  //for (int ii = 0; ii < NN; ii++) {
+  for (int ii = 0; ii < nn; ii++) {
     int i = ilist[ii];
     if (atom->mask[i] & groupbit) {
       b_s[i] = -chi[atom->type[i]];
