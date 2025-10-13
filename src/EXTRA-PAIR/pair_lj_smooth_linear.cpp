@@ -123,6 +123,8 @@ void PairLJSmoothLinear::compute(int eflag, int vflag)
           evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]);
           evdwl = evdwl - ljcut[itype][jtype]
                           + (r-cut[itype][jtype])*dljcut[itype][jtype];
+	  // BFJ: I need this
+          evdwl *= factor_lj;
         }
 
         if (evflag) ev_tally(i,j,nlocal,newton_pair,
