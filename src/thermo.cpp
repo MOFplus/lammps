@@ -46,6 +46,9 @@
 #include "update.h"
 #include "variable.h"
 
+//RS for the mfp5 output
+#include "hdf5.h"
+
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
@@ -119,6 +122,10 @@ Thermo::Thermo(LAMMPS *_lmp, int narg, char **arg) :
   nline = -1;
   image_fname.clear();
 
+  // RS mfp5file is used as a flag
+  mfp5file = 0;
+  stage_name = nullptr;
+  
   // set style and corresponding lineflag
   // custom style builds its own line of keywords, including wildcard expansion
   // CUSTOMIZATION: add a new thermo style by adding it to the if statement
@@ -172,7 +179,6 @@ Thermo::Thermo(LAMMPS *_lmp, int narg, char **arg) :
 
   //RS allocate thermo_values since nfield is now known
   thermo_values = new double[nfield];
-  // printf("DEBUG: allocated %d fields for thermo_values\n" , nfield); 
 
 }
 
@@ -325,6 +331,25 @@ void Thermo::init()
   if (index_press_scalar >= 0) pressure = computes[index_press_scalar];
   if (index_press_vector >= 0) pressure = computes[index_press_vector];
   if (index_pe >= 0) pe = computes[index_pe];
+
+  // RS check if we write to mfp5 and the file is open and properly formatted
+  if (mfp5file > 0) {
+    utils::logmesg(lmp, "Thermo output will be written to mfp5 file.\n");
+    // check if file is open and properly formatted by trying to open the group for the first stage
+    stage_group = H5Gopen(mfp5file, stage_name, H5P_DEFAULT);
+    if (stage_group < 0) error->all(FLERR, "Thermo mfp5 file is not properly formatted or stage group cannot be opened");
+    traj_group  = H5Gopen(stage_group, "traj", H5P_DEFAULT);
+    if (traj_group < 0) error->all(FLERR, "Thermo mfp5 file is not properly formatted or traj group cannot be opened");
+    thermo_dset = H5Dopen(traj_group, "thermo", H5P_DEFAULT);
+    if (thermo_dset < 0) error->all(FLERR, "Thermo mfp5 file is not properly formatted or thermo dataset cannot be opened");
+    hid_t dspace = H5Dget_space(thermo_dset);
+    const int ndims = H5Sget_simple_extent_ndims(dspace);
+    if (ndims != 2) error->all(FLERR, "Thermo mfp5 dataset has wrong number of dimensions");
+    hsize_t dims[2];
+    H5Sget_simple_extent_dims(dspace, dims, nullptr);
+    if (dims[1] != (hsize_t) nfield) error->all(FLERR, "Thermo mfp5 dataset has wrong number of columns");
+    H5Sclose(dspace);
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -449,10 +474,9 @@ void Thermo::compute(int flag)
       tvalue = bivalue;
     }
 
-    //RS add values to array .. convert all to double first.
+    // RS add values to array .. convert all to double first.
     // printf("DEBUG add value %12.6f for field %d\n", tvalue, ifield);
     thermo_values[ifield] = tvalue; 
-
   }
 
   // print line to screen and logfile
@@ -462,6 +486,39 @@ void Thermo::compute(int flag)
     if (flushflag) utils::flush_buffers(lmp);
   }
 
+  if (mfp5file > 0) {
+    // RS write data from thermo_values to mfp5 file (thermo_dset)
+    herr_t status;
+    status = 0;
+    if (firststep == 0) {
+      // write data
+      status = H5Dwrite(thermo_dset, H5T_IEEE_F64LE, H5S_ALL, H5S_ALL, H5P_DEFAULT, thermo_values);
+      if (status < 0) error->all(FLERR, "Error writing thermo data to mfp5 file");
+    } else {
+      // append data by incrementing first dim with 1
+      hid_t dspace = H5Dget_space(thermo_dset);
+      hsize_t dims[2];
+      H5Sget_simple_extent_dims(dspace, dims, nullptr);
+      dims[0] += 1; // add one row for new data
+      status = H5Dset_extent(thermo_dset, dims);
+      if (status < 0) error->all(FLERR, "Error extending thermo dataset in mfp5 file");
+      H5Sclose(dspace);
+      // select hyperslab for new row and write data
+      dspace = H5Dget_space(thermo_dset);
+      hsize_t offset[2] = {dims[0]-1, 0};
+      hsize_t count[2] = {1, dims[1]};
+      status = H5Sselect_hyperslab(dspace, H5S_SELECT_SET, offset, nullptr, count, nullptr);
+      if (status < 0) error->all(FLERR, "Error selecting hyperslab for thermo data in mfp5 file");
+      hid_t mspace = H5Screate_simple(1, dims+1, nullptr);
+      if (mspace < 0) error->all(FLERR, "Error creating memory space for thermo data in mfp5 file");
+      status = H5Dwrite(thermo_dset, H5T_IEEE_F64LE, mspace, dspace, H5P_DEFAULT, thermo_values);
+      if (status < 0) error->all(FLERR, "Error writing thermo data to mfp5 file");
+      H5Sclose(dspace);
+      H5Sclose(mspace);
+    }
+    if (status < 0) error->all(FLERR, "Error writing thermo data to mfp5 file");
+  }
+    
   // set to 1, so that subsequent invocations of CPU time will be non-zero
   // e.g. via variables in print command
 
@@ -745,6 +802,22 @@ void Thermo::modify_params(int narg, char **arg)
       }
       iarg += 3;
 
+    } else if (strcmp(arg[iarg], "mfp5") == 0) {
+      if (iarg + 3 > narg) utils::missing_cmd_args(FLERR, "thermo_modify mfp5", error);
+      // first arg is stagename, 2nd is filehandle id
+      if (stage_name==nullptr) {
+        stage_name = new char[strlen(arg[iarg+1])+1];
+        strcpy(stage_name, arg[iarg+1]);
+      }
+      // convert the second arg[iarg+1] into a longlong
+      errno = 0;
+      char *endptr;
+      mfp5file = (hid_t) strtoll(arg[iarg+2], &endptr, 10);
+      if (errno != 0) {
+        error->all(FLERR, "Invalid hdf5id value in thermo_modify mfp5 command");
+      } 
+      iarg += 3;
+      
     } else
       error->all(FLERR, "Unknown thermo_modify keyword: {}", arg[iarg]);
   }

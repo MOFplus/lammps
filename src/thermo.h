@@ -17,6 +17,10 @@
 #include "pointers.h"
 #include <map>
 
+// RS for writing thermo data to hdf5 file
+#include "hdf5.h"
+
+
 namespace LAMMPS_NS {
 
 class Thermo : protected Pointers {
@@ -42,9 +46,6 @@ class Thermo : protected Pointers {
   void compute(int);
   int evaluate_keyword(const std::string &, double *);
 
-  //RS thermo_values .. is an array of doubles with the values usually dumped to screen
-  double *thermo_values;
-  
   // for accessing cached thermo and related data
   const int *get_line() const { return &nline; }
   const char *get_image_fname() const { return image_fname.c_str(); }
@@ -95,6 +96,13 @@ class Thermo : protected Pointers {
   int *argindex1;      // indices into compute,fix scalar,vector
   int *argindex2;
 
+  //RS thermo_values .. is an array of doubles with the values usually dumped to screen
+  double *thermo_values; // array of doubles to store data
+  hid_t mfp5file;
+  hid_t thermo_dset;
+  hid_t traj_group;
+  hid_t stage_group;
+  char *stage_name;
   double tvalue;         //RS double value to be written to thermo_value array
 
   // data for keyword-specific Compute objects

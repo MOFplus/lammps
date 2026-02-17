@@ -50,7 +50,7 @@ WARNING: i am pretty sure that there are better (proper) ways to do this and the
 #include "force.h"
 #include "memory.h"
 #include "version.h"
-#include "thermo.h"
+// #include "thermo.h"
 
 #include "fix_reaxff_bonds.h"
 #include "modify.h"
@@ -104,10 +104,15 @@ DumpMFP5::DumpMFP5(LAMMPS *lmp, int narg, char **arg) : Dump(lmp, narg, arg)
   every_charges = -1;
   every_cell = -1;
   every_restart = -1;
-  every_thermo = -1;
+  // every_thermo = -1;
   every_bond = -1;
 
   dump_count = 0; // this counter is only to syncronize the thermo dumping becasue thermo is done after dump in the cycle
+
+  // hdf5id should be nonzero if anything has been passed here
+  hdf5id = 0;
+  // printf("DEBUG: hdf5id is set to zero in constructor\n");
+
 
   int iarg=5;
   int n_parsed, default_every;
@@ -132,6 +137,18 @@ DumpMFP5::DumpMFP5(LAMMPS *lmp, int narg, char **arg) : Dump(lmp, narg, arg)
       } else {
         error->all(FLERR, "Illegal dump mfp5 command: stage name argument repeated");
       }
+      iarg+=2;
+    } else if (strcmp(arg[iarg], "hdf5id")==0) {
+      if (iarg+1>=narg) {
+        error->all(FLERR, "hdf5id missing value");
+      }
+      // convert the second arg[iarg+1] into a longlong
+      errno = 0;
+      char *endptr;
+      hdf5id = strtoll(arg[iarg+1], &endptr, 10);
+      if (errno != 0) {
+        error->all(FLERR, "Invalid hdf5id value in dump mfp5 command");
+      } 
       iarg+=2;
     } else if (strcmp(arg[iarg], "img")==0) {
       if (every_xyz<0) error->all(FLERR, "Illegal dump mfp5 command");
@@ -173,11 +190,11 @@ DumpMFP5::DumpMFP5(LAMMPS *lmp, int narg, char **arg) : Dump(lmp, narg, arg)
       n_parsed = element_args(narg-iarg, &arg[iarg], &every_restart);
       if (n_parsed<0) error->all(FLERR, "Illegal dump mfp5 command");
       iarg += n_parsed;
-    } else if (strcmp(arg[iarg], "thermo")==0) {
+      /* } else if (strcmp(arg[iarg], "thermo")==0) {
       every_thermo = default_every;
       iarg+=1;
       n_parsed = element_args(narg-iarg, &arg[iarg], &every_thermo);
-      if (n_parsed<0) error->all(FLERR, "Illegal dump mfp5 command");
+      if (n_parsed<0) error->all(FLERR, "Illegal dump mfp5 command"); */
     } else if (strcmp(arg[iarg], "bond")==0) {
       every_bond = default_every;
       iarg+=1;
@@ -284,14 +301,14 @@ DumpMFP5::~DumpMFP5()
   if (every_cell>=0) {
     if (me==0) H5Dclose(cell_dset);    
   }
-  if (every_thermo>=0) {
+  /* if (every_thermo>=0) {
     if (me==0) {
       // write one more frame of thermo data to wrap up (thermo is called after dump so the last step is missing)
       statcode = append_data(thermo_dset, 2, output->thermo->thermo_values);
       //printf("after append thermo : %d\n" , statcode);
       H5Dclose(thermo_dset);
-    }    
-  }
+    }     
+  } */
   if (every_bond>=0) {
     if (me==0) {
       H5Dclose(bondtab_dset);
@@ -337,11 +354,16 @@ void DumpMFP5::openfile()
 
   if (me == 0) {
     // me == 0 _> do only on master node
-    
-    mfp5file = H5Fopen(filename, H5F_ACC_RDWR, H5P_DEFAULT);
+    if (hdf5id > 0) {
+      // printf("DEBUG: using passed hdf5id %lld to open file\n", hdf5id);
+      mfp5file = (hid_t) hdf5id; // just use the passed hdf5id and do not open a file here
+    } else {
+      // printf("DEBUG: opening mfp5 file %s\n", filename);
+      mfp5file = H5Fopen(filename, H5F_ACC_RDWR, H5P_DEFAULT);
+    }
     //printf("file %s opened \n", filename);
-
-    /* // DEBUG DBEUG
+    /* 
+    // DEBUG DBEUG
     root_group = H5Gopen(mfp5file, "/", H5P_DEFAULT);
     err = H5Gget_num_objs(root_group, &nobj);
     for (i = 0; i < nobj; i++) {
@@ -349,7 +371,7 @@ void DumpMFP5::openfile()
       printf("objname : %s\n", memb_name);
     }
     H5Gclose(root_group);
-    // DEBUG DEBUG */
+    // DEBUG DEBUG  */
 
     stage_group = H5Gopen(mfp5file, stage_name, H5P_DEFAULT);
     //printf("group %s opened\n", stage_name);
@@ -381,10 +403,10 @@ void DumpMFP5::openfile()
       cell_dset = H5Dopen(traj_group, "cell", H5P_DEFAULT);
       //printf("mfp5 cell dset opened\n");
     }
-    if (every_thermo>0) {
+/*     if (every_thermo>0) {
       thermo_dset = H5Dopen(traj_group, "thermo", H5P_DEFAULT);
       //printf("mfp5 thermo dset opened\n");
-    }
+    } */
     if (every_bond>0) {
       bondtab_dset = H5Dopen(traj_group, "bondtab", H5P_DEFAULT);
       bondord_dset = H5Dopen(traj_group, "bondord", H5P_DEFAULT);
@@ -622,14 +644,14 @@ void DumpMFP5::write_frame()
       statcode = append_data(charges_dset, 2, dump_charges); 
     }
   }
-  if (every_thermo>0 && local_step % (every_thermo*every_dump) == 0) {
+  /* if (every_thermo>0 && local_step % (every_thermo*every_dump) == 0) {
     // take array of thermo_values from thermo object (public array)
     if (dump_count == 1) {
       statcode = write_data(thermo_dset, 2, output->thermo->thermo_values);
     } else if (dump_count > 1) {
       statcode = append_data(thermo_dset, 2, output->thermo->thermo_values);
     }
-  }
+  } */
   if (every_bond>0 && local_step % (every_bond*every_dump) == 0) {
     // take array of thermo_values from thermo object (public array)
     if (dump_count == 0) {

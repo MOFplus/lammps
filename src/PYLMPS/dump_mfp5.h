@@ -43,6 +43,7 @@ class DumpMFP5 : public Dump {
   int natoms,ntotal;
   int unwrap_flag;            // 1 if atom coords are unwrapped, 0 if no
   hid_t mfp5file;
+  long long int hdf5id;      // use this to store the hdf5 file id that is passed in via the dump command from pylmps
   hid_t stage_group, traj_group, restart_group;
   hid_t rest_xyz_dset, rest_vel_dset, rest_cell_dset, rest_img_dset;
 
@@ -52,7 +53,7 @@ class DumpMFP5 : public Dump {
   hid_t forces_dset;
   hid_t charges_dset;
   hid_t cell_dset;
-  hid_t thermo_dset;
+  // hid_t thermo_dset;
   hid_t bondtab_dset;
   hid_t bondord_dset;
 
@@ -72,7 +73,7 @@ class DumpMFP5 : public Dump {
   int every_cell;
 
   int every_restart;
-  int every_thermo;
+  // int every_thermo;
   int every_bond;
 
   int dump_count;
